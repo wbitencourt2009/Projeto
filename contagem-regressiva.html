@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contagem Regressiva</title>
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  #tela {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+    cursor: pointer;
+  }
+
+  #numero {
+    font-size: 30vw;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #numero.zerado {
+    color: #ff3b3b;
+  }
+
+  #painel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.85);
+    transition: opacity 0.3s ease;
+    z-index: 10;
+  }
+
+  #painel.escondido {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  #painel label {
+    color: #ccc;
+    font-size: 14px;
+    margin-right: 4px;
+  }
+
+  #painel input[type="number"] {
+    width: 70px;
+    font-size: 20px;
+    text-align: center;
+    background: #111;
+    color: #fff;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 6px 4px;
+  }
+
+  #painel button {
+    font-size: 16px;
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  #btnIniciar { background: #2e7d32; color: #fff; }
+  #btnPausar  { background: #f9a825; color: #000; }
+  #btnZerar   { background: #555; color: #fff; }
+
+  #dica {
+    position: fixed;
+    bottom: 16px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 14px;
+    color: #555;
+    z-index: 10;
+  }
+
+  @media (max-width: 700px) {
+    #numero { font-size: 26vw; }
+  }
+</style>
+</head>
+<body>
+
+<div id="painel">
+  <label for="min">Minutos</label>
+  <input type="number" id="min" min="0" max="999" value="5">
+  <label for="seg">Segundos</label>
+  <input type="number" id="seg" min="0" max="59" value="0">
+  <button id="btnIniciar">Iniciar</button>
+  <button id="btnPausar">Pausar</button>
+  <button id="btnZerar">Zerar</button>
+</div>
+
+<div id="tela">
+  <div id="numero">05:00</div>
+</div>
+
+<div id="dica">clique na tela para esconder/mostrar os controles &middot; F11 para tela cheia</div>
+
+<script>
+  const numeroEl = document.getElementById('numero');
+  const painelEl = document.getElementById('painel');
+  const telaEl = document.getElementById('tela');
+  const minInput = document.getElementById('min');
+  const segInput = document.getElementById('seg');
+  const btnIniciar = document.getElementById('btnIniciar');
+  const btnPausar = document.getElementById('btnPausar');
+  const btnZerar = document.getElementById('btnZerar');
+
+  let totalSegundos = 0;
+  let restante = 0;
+  let intervaloId = null;
+  let beep = null;
+
+  function formatar(segundos) {
+    const s = Math.max(0, segundos);
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+  }
+
+  function atualizarTela() {
+    numeroEl.textContent = formatar(restante);
+    numeroEl.classList.toggle('zerado', restante <= 0);
+  }
+
+  function tocarBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+    } catch (e) {}
+  }
+
+  function iniciar() {
+    if (intervaloId) return;
+
+    if (restante <= 0) {
+      const min = parseInt(minInput.value, 10) || 0;
+      const seg = parseInt(segInput.value, 10) || 0;
+      totalSegundos = min * 60 + seg;
+      restante = totalSegundos;
+    }
+
+    if (restante <= 0) return;
+
+    atualizarTela();
+    intervaloId = setInterval(() => {
+      restante -= 1;
+      atualizarTela();
+      if (restante <= 0) {
+        clearInterval(intervaloId);
+        intervaloId = null;
+        tocarBeep();
+      }
+    }, 1000);
+  }
+
+  function pausar() {
+    if (intervaloId) {
+      clearInterval(intervaloId);
+      intervaloId = null;
+    }
+  }
+
+  function zerar() {
+    pausar();
+    const min = parseInt(minInput.value, 10) || 0;
+    const seg = parseInt(segInput.value, 10) || 0;
+    totalSegundos = min * 60 + seg;
+    restante = totalSegundos;
+    atualizarTela();
+  }
+
+  btnIniciar.addEventListener('click', iniciar);
+  btnPausar.addEventListener('click', pausar);
+  btnZerar.addEventListener('click', zerar);
+
+  telaEl.addEventListener('click', () => {
+    painelEl.classList.toggle('escondido');
+  });
+
+  zerar();
+</script>
+
+</body>
+</html>
