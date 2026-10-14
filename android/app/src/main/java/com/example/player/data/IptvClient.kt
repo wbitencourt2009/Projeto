@@ -85,7 +85,7 @@ class IptvClient {
             }
         if (channels.isEmpty()) throw LoginException("Login feito, mas o servidor não enviou nenhum canal.")
 
-        Content(categories, channels, account, System.currentTimeMillis())
+        return Content(categories, channels, account, System.currentTimeMillis())
     }
 
     @OptIn(ExperimentalSerializationApi::class)
