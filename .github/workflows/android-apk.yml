@@ -25,8 +25,13 @@ jobs:
 
       - name: Build debug APK
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace --no-daemon
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+
+      - name: Show compile errors
+        if: failure()
+        run: grep -E "^(e|w): |What went wrong|> " build.log | grep -vE "^> Task" | tail -60
 
       - name: Rename APK
         run: |

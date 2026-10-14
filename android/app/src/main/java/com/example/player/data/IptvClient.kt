@@ -91,11 +91,11 @@ class IptvClient {
     @OptIn(ExperimentalSerializationApi::class)
     private fun getJson(url: String): JsonElement {
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-        try {
+        return try {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw LoginException("O servidor respondeu com erro HTTP ${response.code}.")
                 val body = response.body ?: throw LoginException("Resposta vazia do servidor.")
-                return json.decodeFromStream(JsonElement.serializer(), body.byteStream())
+                json.decodeFromStream(JsonElement.serializer(), body.byteStream())
             }
         } catch (e: LoginException) {
             throw e
