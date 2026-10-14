@@ -1,0 +1,49 @@
+feature,area,priority,original,clone,notes
+Login with Xtream Codes (server URL username password),login,must,yes,no,S03; accept URL with or without http and port
+Login with M3U playlist URL,login,must,yes,no,S04; streaming parser for large files
+Optional external EPG (XMLTV) URL for M3U,login,must,yes,no,S04; gzip support
+Account info and expiry date from the server,account,must,yes,no,S07 S26; Xtream user_info
+Download and cache categories and streams on device,data,must,yes,no,S06; Room database
+Live TV categories and channel list,live,must,yes,no,S08
+Live player fullscreen with info overlay now/next,live,must,yes,no,S09; Media3 ExoPlayer HLS and TS
+Channel up/down and number keys while watching,live,must,yes,no,F04
+Quick channel list overlay inside the player,live,must,yes,no,S09
+EPG now/next on channel list,epg,must,yes,no,S08
+Full EPG grid (TV Guide),epg,must,yes,no,S10
+Movies categories and poster grid,vod,must,yes,no,S13
+Movie detail page with plot rating cast,vod,must,yes,no,S14; get_vod_info
+Series categories and grid,series,must,yes,no,S15
+Series detail with seasons and episodes,series,must,yes,no,S16; get_series_info
+VOD player with seek pause and ±10 s,player,must,yes,no,S17
+Favourites for channels movies and series,favourites,must,yes,no,S19 F10; keep insertion order
+Search across live movies and series,search,must,yes,no,S18
+Full D-pad / TV remote navigation with visible focus,tv,must,yes,no,every screen; Android TV and Fire TV
+Phone and tablet touch layout,platform,must,yes,no,same app on phone
+Error and retry when a stream fails,player,must,yes,no,S09 S17
+Catch-up / archive playback from the EPG,catchup,should,yes,no,S11 S12 F06; Xtream timeshift URL
+Catch-up section by channel and day,catchup,should,yes,no,S12
+Resume position for movies and episodes,vod,should,yes,no,S14 S20
+Continue watching and recent channels,vod,should,yes,no,S20
+Next episode autoplay,series,should,yes,no,S17
+Audio track and subtitle selection,player,should,yes,no,S17
+Aspect ratio / zoom modes,player,should,yes,no,S17 S22
+Second player engine as fallback (libVLC),player,should,yes,no,S22; ExoPlayer + VLC like the original
+Choose player per category,settings,should,yes,no,S22; source 7
+Parental control PIN and locked categories,settings,should,yes,no,S24 S27 F11
+Multiple saved profiles / playlists,profiles,should,yes,no,S05 F12
+Manual and automatic content refresh,data,should,yes,no,S25 F13
+EPG time shift setting,settings,should,yes,no,S23
+Programme reminders,epg,should,yes,no,S11 F05; local notification
+Backup and restore settings and favourites,settings,could,yes,no,S25; export file
+Scheduled recording (DVR) to storage,recording,could,yes,no,source 2; heavy: background download service
+EZServer (EZHometech) login,login,could,yes,no,niche panel type
+Trailer playback on movie detail,vod,could,yes,no,S14; YouTube intent
+Hide categories,settings,could,yes,no,S24
+Buffer size and hardware/software decoder settings,settings,could,yes,no,S22
+Interface language setting,settings,could,yes,no,S25
+12/24 hour clock setting,settings,could,yes,no,S25
+Multi-screen (several channels at once),live,could,unclear,no,reported by reseller pages only; not confirmed for XCIPTV
+Built-in VPN,network,could,no,skip,removed by XCIPTV in 6.0
+Bundled channels playlists or default servers,content,could,no,skip,the app ships empty; the user brings their own subscription
+XCIPTV name logo and branding,brand,could,yes,skip,owned by OTTRUN; /replica-brand makes your own
+White-label reseller panel,business,could,yes,skip,OTTRUN's business service; not part of the player
