@@ -31,7 +31,8 @@ jobs:
 
       - name: Show compile errors
         if: failure()
-        run: grep -E "^(e|w): |What went wrong|> " build.log | grep -vE "^> Task" | tail -60
+        run: |
+          grep -E "^(e|w): |What went wrong|> " build.log | grep -vE "^> Task" | tail -60
 
       - name: Rename APK
         run: |
