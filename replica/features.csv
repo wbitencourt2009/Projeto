@@ -11,7 +11,7 @@ Quick channel list overlay inside the player,live,must,yes,no,S09
 EPG now/next on channel list,epg,must,yes,no,S08
 Full EPG grid (TV Guide),epg,must,yes,no,S10
 Movies categories and poster grid,vod,must,yes,yes,S13
-Movie detail page with plot rating cast,vod,must,yes,partial,S14; get_vod_info
+Movie detail page with plot rating cast,vod,must,yes,no,S14; get_vod_info
 Series categories and grid,series,must,yes,yes,S15
 Series detail with seasons and episodes,series,must,yes,yes,S16; get_series_info
 VOD player with seek pause and ±10 s,player,must,yes,yes,S17
