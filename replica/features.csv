@@ -1,30 +1,30 @@
 feature,area,priority,original,clone,notes
-Login with Xtream Codes (server URL username password),login,must,yes,no,S03; accept URL with or without http and port
-Login with M3U playlist URL,login,must,yes,no,S04; streaming parser for large files
+Login with Xtream Codes (server URL username password),login,must,yes,yes,S03; accept URL with or without http and port
+Login with M3U playlist URL,login,must,yes,yes,S04; streaming parser for large files
 Optional external EPG (XMLTV) URL for M3U,login,must,yes,no,S04; gzip support
-Account info and expiry date from the server,account,must,yes,no,S07 S26; Xtream user_info
-Download and cache categories and streams on device,data,must,yes,no,S06; Room database
-Live TV categories and channel list,live,must,yes,no,S08
-Live player fullscreen with info overlay now/next,live,must,yes,no,S09; Media3 ExoPlayer HLS and TS
-Channel up/down and number keys while watching,live,must,yes,no,F04
+Account info and expiry date from the server,account,must,yes,yes,S07 S26; Xtream user_info
+Download and cache categories and streams on device,data,must,yes,yes,S06; Room database
+Live TV categories and channel list,live,must,yes,yes,S08
+Live player fullscreen with info overlay now/next,live,must,yes,partial,S09; Media3 ExoPlayer HLS and TS
+Channel up/down and number keys while watching,live,must,yes,partial,F04
 Quick channel list overlay inside the player,live,must,yes,no,S09
 EPG now/next on channel list,epg,must,yes,no,S08
 Full EPG grid (TV Guide),epg,must,yes,no,S10
-Movies categories and poster grid,vod,must,yes,no,S13
-Movie detail page with plot rating cast,vod,must,yes,no,S14; get_vod_info
-Series categories and grid,series,must,yes,no,S15
-Series detail with seasons and episodes,series,must,yes,no,S16; get_series_info
-VOD player with seek pause and ±10 s,player,must,yes,no,S17
-Favourites for channels movies and series,favourites,must,yes,no,S19 F10; keep insertion order
-Search across live movies and series,search,must,yes,no,S18
-Full D-pad / TV remote navigation with visible focus,tv,must,yes,no,every screen; Android TV and Fire TV
-Phone and tablet touch layout,platform,must,yes,no,same app on phone
-Error and retry when a stream fails,player,must,yes,no,S09 S17
+Movies categories and poster grid,vod,must,yes,yes,S13
+Movie detail page with plot rating cast,vod,must,yes,partial,S14; get_vod_info
+Series categories and grid,series,must,yes,yes,S15
+Series detail with seasons and episodes,series,must,yes,yes,S16; get_series_info
+VOD player with seek pause and ±10 s,player,must,yes,yes,S17
+Favourites for channels movies and series,favourites,must,yes,yes,S19 F10; keep insertion order
+Search across live movies and series,search,must,yes,yes,S18
+Full D-pad / TV remote navigation with visible focus,tv,must,yes,yes,every screen; Android TV and Fire TV
+Phone and tablet touch layout,platform,must,yes,partial,same app on phone
+Error and retry when a stream fails,player,must,yes,yes,S09 S17
 Catch-up / archive playback from the EPG,catchup,should,yes,no,S11 S12 F06; Xtream timeshift URL
 Catch-up section by channel and day,catchup,should,yes,no,S12
 Resume position for movies and episodes,vod,should,yes,no,S14 S20
-Continue watching and recent channels,vod,should,yes,no,S20
-Next episode autoplay,series,should,yes,no,S17
+Continue watching and recent channels,vod,should,yes,partial,S20
+Next episode autoplay,series,should,yes,yes,S17
 Audio track and subtitle selection,player,should,yes,no,S17
 Aspect ratio / zoom modes,player,should,yes,no,S17 S22
 Second player engine as fallback (libVLC),player,should,yes,no,S22; ExoPlayer + VLC like the original
