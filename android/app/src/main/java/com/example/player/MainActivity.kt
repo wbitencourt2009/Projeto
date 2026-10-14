@@ -11,15 +11,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.example.player.data.Kind
+import com.example.player.data.Tile
+import com.example.player.ui.screens.BrowseScreen
 import com.example.player.ui.screens.HomeScreen
-import com.example.player.ui.screens.LiveScreen
 import com.example.player.ui.screens.LoadingScreen
 import com.example.player.ui.screens.LoginScreen
 import com.example.player.ui.screens.PlayerScreen
+import com.example.player.ui.screens.SearchScreen
+import com.example.player.ui.screens.SeriesScreen
 import com.example.player.ui.theme.AppColors
 
 class MainActivity : ComponentActivity() {
@@ -55,6 +60,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(vm: AppViewModel, onExit: () -> Unit) {
     val content = vm.content
+    BackHandler { if (!vm.back()) onExit() }
+
     when (val s = vm.screen) {
         Screen.Splash -> LoadingScreen("Abrindo")
         Screen.Login -> LoginScreen(error = vm.loginError, onLogin = vm::login)
@@ -63,32 +70,60 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             if (content == null) {
                 LoadingScreen("Abrindo")
             } else {
-                BackHandler(onBack = onExit)
                 HomeScreen(
                     content = content,
-                    profileName = vm.profile?.name.orEmpty(),
+                    username = vm.profile?.username ?: vm.profile?.name.orEmpty(),
                     message = vm.loginError,
-                    onPlay = vm::play,
-                    onOpenLive = { vm.navigate(Screen.Live()) },
+                    onOpen = { kind -> vm.push(Screen.Browse(kind)) },
+                    onSearch = { vm.push(Screen.Search) },
+                    onFavourites = { vm.push(Screen.Browse(Kind.LIVE, BrowseIds.FAVOURITES)) },
                     onRefresh = vm::refresh,
                     onLogout = vm::logout,
                 )
             }
         }
-        is Screen.Live -> {
+        is Screen.Browse -> {
             if (content != null) {
-                BackHandler { vm.navigate(Screen.Home) }
-                LiveScreen(
+                val tiles = remember(content, s.kind) { vm.tiles(s.kind) }
+                BrowseScreen(
+                    kind = s.kind,
+                    selectedId = s.categoryId,
                     content = content,
-                    initialCategoryId = s.categoryId,
-                    onCategoryChange = { vm.navigate(Screen.Live(it)) },
-                    onPlay = vm::play,
+                    tiles = tiles,
+                    favourites = vm.favourites,
+                    recent = vm.recent,
+                    onSelect = { id -> if (id != s.categoryId) vm.replaceTop(s.copy(categoryId = id)) },
+                    onOpen = vm::open,
+                    onToggleFavourite = vm::toggleFavourite,
+                    onBack = { vm.back() },
                 )
             }
         }
-        is Screen.Player -> {
-            BackHandler { vm.navigate(s.back) }
-            PlayerScreen(channels = s.channels, startIndex = s.index, urlFor = vm::liveUrl)
+        is Screen.SeriesInfo -> SeriesScreen(
+            series = s.series,
+            detail = vm.seriesDetail,
+            error = vm.seriesError,
+            favourite = vm.isFavourite(Tile.keyOf(Kind.SERIES, s.series.id)),
+            onToggleFavourite = { vm.toggleFavourite(Tile.keyOf(Kind.SERIES, s.series.id)) },
+            onRetry = { vm.retrySeries(s.series) },
+            onPlay = { episodes, i -> vm.playEpisodes(episodes, i, s.series) },
+        )
+        Screen.Search -> {
+            if (content != null) {
+                val all = remember(content) { Kind.entries.associateWith { vm.tiles(it) } }
+                SearchScreen(
+                    all = all,
+                    favourites = vm.favourites,
+                    onOpen = vm::open,
+                    onToggleFavourite = vm::toggleFavourite,
+                )
+            }
         }
+        is Screen.Player -> PlayerScreen(
+            items = s.items,
+            startIndex = s.index,
+            live = s.live,
+            onItemShown = { if (s.live) vm.onLivePlayed(it.key) },
+        )
     }
 }

@@ -4,7 +4,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
  * The focus glow used by every focusable item: scale 1.08, 3dp focus ring and a
  * soft cyan shadow. Works with the TV remote (D-pad + OK) and with touch.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FocusBox(
     modifier: Modifier = Modifier,
@@ -40,6 +42,7 @@ fun FocusBox(
     background: Color = AppColors.surfaceRaised,
     focusScale: Float = AppMotion.FOCUS_SCALE,
     onFocused: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
@@ -65,7 +68,7 @@ fun FocusBox(
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
             }
-            .clickable(onClick = onClick),
+            .combinedClickable(onLongClick = onLongClick, onClick = onClick),
     ) {
         content(focused)
     }

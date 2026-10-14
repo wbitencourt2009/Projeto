@@ -6,12 +6,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.player.data.Channel
 import com.example.player.data.Content
+import com.example.player.data.Episode
 import com.example.player.data.IptvClient
+import com.example.player.data.Kind
+import com.example.player.data.Library
 import com.example.player.data.LoginException
+import com.example.player.data.PlayItem
 import com.example.player.data.Profile
 import com.example.player.data.ProfileStore
+import com.example.player.data.Series
+import com.example.player.data.SeriesDetail
+import com.example.player.data.Tile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,16 +27,26 @@ sealed interface Screen {
     data object Login : Screen
     data object Loading : Screen
     data object Home : Screen
-    data class Live(val categoryId: String? = null) : Screen
-    data class Player(val channels: List<Channel>, val index: Int, val back: Screen) : Screen
+    data class Browse(val kind: Kind, val categoryId: String = BrowseIds.ALL) : Screen
+    data class SeriesInfo(val series: Series) : Screen
+    data object Search : Screen
+    data class Player(val items: List<PlayItem>, val index: Int, val live: Boolean) : Screen
+}
+
+object BrowseIds {
+    const val ALL = "__all__"
+    const val RECENT = "__recent__"
+    const val FAVOURITES = "__fav__"
 }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProfileStore(app)
+    private val library = Library(app)
     val client = IptvClient()
 
-    var screen by mutableStateOf<Screen>(Screen.Splash)
-        private set
+    private var stack by mutableStateOf<List<Screen>>(listOf(Screen.Splash))
+    val screen: Screen get() = stack.last()
+
     var profile by mutableStateOf<Profile?>(null)
         private set
     var content by mutableStateOf<Content?>(null)
@@ -39,24 +55,56 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var loginError by mutableStateOf<String?>(null)
         private set
+    var favourites by mutableStateOf(library.favourites())
+        private set
+    var recent by mutableStateOf(library.recent())
+        private set
+    var seriesDetail by mutableStateOf<SeriesDetail?>(null)
+        private set
+    var seriesError by mutableStateOf<String?>(null)
+        private set
 
     init {
         viewModelScope.launch {
             val saved = withContext(Dispatchers.IO) { store.load() }
             if (saved == null) {
-                screen = Screen.Login
+                reset(Screen.Login)
                 return@launch
             }
             profile = saved
             val cached = withContext(Dispatchers.IO) { store.loadContent() }
             if (cached != null) {
                 content = cached
-                screen = Screen.Home
+                reset(Screen.Home)
             } else {
                 load(saved, isNewLogin = false)
             }
         }
     }
+
+    // ---- navigation ----
+
+    fun push(to: Screen) {
+        stack = stack + to
+    }
+
+    /** Replaces the top screen, e.g. to remember the selected category. */
+    fun replaceTop(to: Screen) {
+        stack = stack.dropLast(1) + to
+    }
+
+    /** Returns false when there is nothing to go back to (the app should close). */
+    fun back(): Boolean {
+        if (stack.size <= 1) return false
+        stack = stack.dropLast(1)
+        return true
+    }
+
+    private fun reset(to: Screen) {
+        stack = listOf(to)
+    }
+
+    // ---- account ----
 
     fun login(newProfile: Profile) {
         loginError = null
@@ -70,25 +118,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logout() {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { store.clear() }
+            withContext(Dispatchers.IO) {
+                store.clear()
+                library.clear()
+            }
             profile = null
             content = null
-            screen = Screen.Login
+            favourites = emptyList()
+            recent = emptyList()
+            reset(Screen.Login)
         }
     }
 
-    fun navigate(to: Screen) {
-        screen = to
-    }
-
-    fun play(channels: List<Channel>, index: Int) {
-        screen = Screen.Player(channels, index, back = screen)
-    }
-
-    fun liveUrl(channel: Channel): String = profile?.let { client.liveUrl(it, channel) }.orEmpty()
-
     private suspend fun load(p: Profile, isNewLogin: Boolean) {
-        screen = Screen.Loading
+        reset(Screen.Loading)
         loadingStep = "Conectando"
         try {
             val fetched = client.fetch(p) { step -> viewModelScope.launch { loadingStep = step } }
@@ -98,7 +141,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             profile = p
             content = fetched
-            screen = Screen.Home
+            loginError = null
+            reset(Screen.Home)
         } catch (e: LoginException) {
             onLoadFailed(e.message ?: "Erro ao carregar.", isNewLogin)
         } catch (e: Exception) {
@@ -109,6 +153,99 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun onLoadFailed(message: String, isNewLogin: Boolean) {
         loginError = message
         // A failed refresh keeps the old list usable.
-        screen = if (!isNewLogin && content != null) Screen.Home else Screen.Login
+        reset(if (!isNewLogin && content != null) Screen.Home else Screen.Login)
+    }
+
+    // ---- library ----
+
+    fun isFavourite(key: String) = key in favourites
+
+    fun toggleFavourite(key: String) {
+        favourites = if (key in favourites) favourites - key else favourites + key
+        library.saveFavourites(favourites)
+    }
+
+    private fun markWatched(key: String) {
+        recent = (listOf(key) + (recent - key)).take(Library.MAX_RECENT)
+        library.saveRecent(recent)
+    }
+
+    // ---- items ----
+
+    fun tiles(kind: Kind): List<Tile> {
+        val c = content ?: return emptyList()
+        return when (kind) {
+            Kind.LIVE -> c.channels.map { com.example.player.data.Tile(Kind.LIVE, it.id, it.name, it.logo, it.categoryId, it.number) }
+            Kind.MOVIE -> c.movies.map { Tile(Kind.MOVIE, it.id, it.name, it.poster, it.categoryId) }
+            Kind.SERIES -> c.series.map { Tile(Kind.SERIES, it.id, it.name, it.cover, it.categoryId) }
+        }
+    }
+
+    /** Opens a tile: plays a channel or movie, opens a series. [list] is the grid it came from. */
+    fun open(tile: Tile, list: List<Tile>) {
+        val c = content ?: return
+        val p = profile ?: return
+        when (tile.kind) {
+            Kind.LIVE -> {
+                val channels = list.filter { it.kind == Kind.LIVE }
+                val byId = c.channels.associateBy { it.id }
+                val items = channels.mapNotNull { t ->
+                    byId[t.id]?.let { ch ->
+                        PlayItem(t.key, ch.name, subtitle = null, image = ch.logo, url = client.liveUrl(p, ch), number = ch.number)
+                    }
+                }
+                val index = items.indexOfFirst { it.key == tile.key }.coerceAtLeast(0)
+                markWatched(tile.key)
+                push(Screen.Player(items, index, live = true))
+            }
+            Kind.MOVIE -> {
+                val movie = c.movies.firstOrNull { it.id == tile.id } ?: return
+                markWatched(tile.key)
+                push(Screen.Player(listOf(PlayItem(tile.key, movie.name, image = movie.poster, url = client.movieUrl(p, movie))), 0, live = false))
+            }
+            Kind.SERIES -> {
+                val series = c.series.firstOrNull { it.id == tile.id } ?: return
+                markWatched(tile.key)
+                if (series.url != null) {
+                    push(Screen.Player(listOf(PlayItem(tile.key, series.name, image = series.cover, url = series.url)), 0, live = false))
+                } else {
+                    loadSeries(series)
+                    push(Screen.SeriesInfo(series))
+                }
+            }
+        }
+    }
+
+    fun onLivePlayed(key: String) = markWatched(key)
+
+    private fun loadSeries(series: Series) {
+        val p = profile ?: return
+        seriesDetail = null
+        seriesError = null
+        viewModelScope.launch {
+            try {
+                seriesDetail = client.seriesDetail(p, series)
+            } catch (e: LoginException) {
+                seriesError = e.message
+            } catch (e: Exception) {
+                seriesError = "Não foi possível carregar os episódios."
+            }
+        }
+    }
+
+    fun retrySeries(series: Series) = loadSeries(series)
+
+    fun playEpisodes(episodes: List<Episode>, index: Int, series: Series) {
+        val p = profile ?: return
+        val items = episodes.map { e ->
+            PlayItem(
+                key = "episode:${e.id}",
+                title = "T${e.season} E${e.number} · ${e.title}",
+                subtitle = series.name,
+                image = e.image ?: series.cover,
+                url = client.episodeUrl(p, e),
+            )
+        }
+        push(Screen.Player(items, index, live = false))
     }
 }

@@ -16,7 +16,7 @@ import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-const val USER_AGENT = "Player/0.1 (Android)"
+const val USER_AGENT = "Player/0.2 (Android)"
 
 /** Client for the Xtream Codes player API and for M3U playlists. */
 class IptvClient {
@@ -34,16 +34,57 @@ class IptvClient {
     }
 
     fun liveUrl(profile: Profile, channel: Channel): String =
-        if (profile.isXtream) {
-            "${profile.server}/live/${enc(profile.username)}/${enc(profile.password)}/${channel.id}.ts"
-        } else {
-            channel.url.orEmpty()
+        if (profile.isXtream) "${profile.server}/live/${auth(profile)}/${channel.id}.ts" else channel.url.orEmpty()
+
+    fun movieUrl(profile: Profile, movie: Movie): String =
+        if (profile.isXtream) "${profile.server}/movie/${auth(profile)}/${movie.id}.${movie.ext ?: "mp4"}" else movie.url.orEmpty()
+
+    fun episodeUrl(profile: Profile, episode: Episode): String =
+        "${profile.server}/series/${auth(profile)}/${episode.id}.${episode.ext ?: "mp4"}"
+
+    suspend fun seriesDetail(profile: Profile, series: Series): SeriesDetail = withContext(Dispatchers.IO) {
+        if (!profile.isXtream) return@withContext SeriesDetail(series, series.plot, series.cover, emptyMap())
+        val root = getJson("${base(profile)}&action=get_series_info&series_id=${series.id}") as? JsonObject
+            ?: throw LoginException("O servidor não enviou os episódios desta série.")
+        val info = root["info"] as? JsonObject
+        val backdrop = (info?.get("backdrop_path") as? JsonArray)?.firstOrNull()?.let { (it as? JsonPrimitive)?.contentOrNull }
+            ?: info?.str("cover")
+        val raw = root["episodes"]
+        val lists: List<JsonElement> = when (raw) {
+            is JsonObject -> raw.values.toList()
+            is JsonArray -> raw.toList()
+            else -> emptyList()
         }
+        val episodes = lists.flatMap { (it as? JsonArray).orEmpty() }
+            .mapNotNull { it as? JsonObject }
+            .mapNotNull { e ->
+                val id = e.str("id") ?: return@mapNotNull null
+                val epInfo = e["info"] as? JsonObject
+                Episode(
+                    id = id,
+                    season = e.str("season")?.toIntOrNull() ?: 1,
+                    number = e.str("episode_num")?.toIntOrNull() ?: 0,
+                    title = e.str("title")?.trim().orEmpty().ifEmpty { "Episódio" },
+                    ext = e.str("container_extension"),
+                    image = epInfo?.str("movie_image")?.takeIf { it.startsWith("http") },
+                    plot = epInfo?.str("plot"),
+                    duration = epInfo?.str("duration"),
+                )
+            }
+            .sortedWith(compareBy({ it.season }, { it.number }))
+            .groupBy { it.season }
+        SeriesDetail(series, info?.str("plot") ?: series.plot, backdrop?.takeIf { it.startsWith("http") } ?: series.cover, episodes)
+    }
 
     // ---- Xtream Codes ----
 
+    private fun base(profile: Profile) =
+        "${profile.server}/player_api.php?username=${enc(profile.username)}&password=${enc(profile.password)}"
+
+    private fun auth(profile: Profile) = "${enc(profile.username)}/${enc(profile.password)}"
+
     private fun fetchXtream(profile: Profile, onStep: (String) -> Unit): Content {
-        val base = "${profile.server}/player_api.php?username=${enc(profile.username)}&password=${enc(profile.password)}"
+        val base = base(profile)
 
         onStep("Conectando ao servidor")
         val auth = getJson(base) as? JsonObject
@@ -61,32 +102,82 @@ class IptvClient {
             maxConnections = user.str("max_connections")?.toIntOrNull(),
         )
 
-        onStep("Baixando categorias")
-        val categories = (getJson("$base&action=get_live_categories") as? JsonArray).orEmpty()
-            .mapNotNull { it as? JsonObject }
-            .mapNotNull { o ->
-                val id = o.str("category_id") ?: return@mapNotNull null
-                Category(id = id, name = o.str("category_name") ?: "Categoria $id")
-            }
-
         onStep("Baixando canais")
-        val channels = (getJson("$base&action=get_live_streams") as? JsonArray).orEmpty()
-            .mapNotNull { it as? JsonObject }
-            .mapNotNull { o ->
+        val categories = categories(getJson("$base&action=get_live_categories"))
+        val channels = objects(getJson("$base&action=get_live_streams")).mapNotNull { o ->
+            val id = o.str("stream_id") ?: return@mapNotNull null
+            Channel(
+                id = id,
+                number = o.str("num")?.toDoubleOrNull()?.toInt(),
+                name = o.str("name")?.trim().orEmpty().ifEmpty { "Canal $id" },
+                logo = o.str("stream_icon")?.takeIf { it.startsWith("http") },
+                categoryId = o.str("category_id"),
+                epgId = o.str("epg_channel_id"),
+            )
+        }
+
+        // Providers without VOD return errors or empty lists here; that is fine.
+        onStep("Baixando filmes")
+        val movieCategories = optional { categories(getJson("$base&action=get_vod_categories")) }
+        val movies = optional {
+            objects(getJson("$base&action=get_vod_streams")).mapNotNull { o ->
                 val id = o.str("stream_id") ?: return@mapNotNull null
-                Channel(
+                Movie(
                     id = id,
-                    number = o.str("num")?.toDoubleOrNull()?.toInt(),
-                    name = o.str("name")?.trim().orEmpty().ifEmpty { "Canal $id" },
-                    logo = o.str("stream_icon")?.takeIf { it.startsWith("http") },
+                    name = o.str("name")?.trim().orEmpty().ifEmpty { "Filme $id" },
+                    poster = o.str("stream_icon")?.takeIf { it.startsWith("http") },
                     categoryId = o.str("category_id"),
-                    epgId = o.str("epg_channel_id"),
+                    rating = o.str("rating")?.takeIf { it.isNotBlank() && it != "0" },
+                    ext = o.str("container_extension"),
                 )
             }
-        if (channels.isEmpty()) throw LoginException("Login feito, mas o servidor não enviou nenhum canal.")
+        }
 
-        return Content(categories, channels, account, System.currentTimeMillis())
+        onStep("Baixando séries")
+        val seriesCategories = optional { categories(getJson("$base&action=get_series_categories")) }
+        val series = optional {
+            objects(getJson("$base&action=get_series")).mapNotNull { o ->
+                val id = o.str("series_id") ?: return@mapNotNull null
+                Series(
+                    id = id,
+                    name = o.str("name")?.trim().orEmpty().ifEmpty { "Série $id" },
+                    cover = o.str("cover")?.takeIf { it.startsWith("http") },
+                    categoryId = o.str("category_id"),
+                    rating = o.str("rating")?.takeIf { it.isNotBlank() && it != "0" },
+                    plot = o.str("plot"),
+                )
+            }
+        }
+
+        if (channels.isEmpty() && movies.isEmpty() && series.isEmpty()) {
+            throw LoginException("Login feito, mas o servidor não enviou nenhum conteúdo.")
+        }
+        return Content(
+            categories = categories,
+            channels = channels,
+            account = account,
+            fetchedAt = System.currentTimeMillis(),
+            movieCategories = movieCategories,
+            movies = movies,
+            seriesCategories = seriesCategories,
+            series = series,
+        )
     }
+
+    private fun categories(element: JsonElement): List<Category> = objects(element).mapNotNull { o ->
+        val id = o.str("category_id") ?: return@mapNotNull null
+        Category(id = id, name = o.str("category_name")?.trim().orEmpty().ifEmpty { "Categoria $id" })
+    }
+
+    private fun objects(element: JsonElement): List<JsonObject> =
+        (element as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+
+    private fun <T> optional(block: () -> List<T>): List<T> =
+        try {
+            block()
+        } catch (e: Exception) {
+            emptyList()
+        }
 
     @OptIn(ExperimentalSerializationApi::class)
     private fun getJson(url: String): JsonElement {
@@ -117,12 +208,16 @@ class IptvClient {
             throw LoginException("Link da lista M3U inválido.")
         }
         val channels = ArrayList<Channel>()
-        val groups = LinkedHashMap<String, Category>()
+        val movies = ArrayList<Movie>()
+        val series = ArrayList<Series>()
+        val liveGroups = LinkedHashMap<String, Category>()
+        val movieGroups = LinkedHashMap<String, Category>()
+        val seriesGroups = LinkedHashMap<String, Category>()
         try {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw LoginException("O servidor respondeu com erro HTTP ${response.code}.")
                 val body = response.body ?: throw LoginException("Lista vazia.")
-                onStep("Lendo canais")
+                onStep("Lendo a lista")
                 var pending: Map<String, String>? = null
                 var pendingName = ""
                 body.charStream().buffered().useLines { lines ->
@@ -137,16 +232,30 @@ class IptvClient {
                             pending != null -> {
                                 val attrs = pending!!
                                 val group = attrs["group-title"]?.takeIf { it.isNotBlank() } ?: "Outros"
-                                groups.getOrPut(group) { Category(group, group) }
-                                channels += Channel(
-                                    id = channels.size.toString(),
-                                    number = attrs["tvg-chno"]?.toIntOrNull() ?: (channels.size + 1),
-                                    name = pendingName.ifEmpty { attrs["tvg-name"] ?: "Canal ${channels.size + 1}" },
-                                    logo = attrs["tvg-logo"]?.takeIf { it.startsWith("http") },
-                                    categoryId = group,
-                                    epgId = attrs["tvg-id"],
-                                    url = line,
-                                )
+                                val name = pendingName.ifEmpty { attrs["tvg-name"] ?: "Item" }
+                                val logo = attrs["tvg-logo"]?.takeIf { it.startsWith("http") }
+                                when {
+                                    line.contains("/movie/") -> {
+                                        movieGroups.getOrPut(group) { Category(group, group) }
+                                        movies += Movie(id = "m${movies.size}", name = name, poster = logo, categoryId = group, url = line)
+                                    }
+                                    line.contains("/series/") -> {
+                                        seriesGroups.getOrPut(group) { Category(group, group) }
+                                        series += Series(id = "s${series.size}", name = name, cover = logo, categoryId = group, url = line)
+                                    }
+                                    else -> {
+                                        liveGroups.getOrPut(group) { Category(group, group) }
+                                        channels += Channel(
+                                            id = channels.size.toString(),
+                                            number = attrs["tvg-chno"]?.toIntOrNull() ?: (channels.size + 1),
+                                            name = name,
+                                            logo = logo,
+                                            categoryId = group,
+                                            epgId = attrs["tvg-id"],
+                                            url = line,
+                                        )
+                                    }
+                                }
                                 pending = null
                             }
                         }
@@ -158,8 +267,17 @@ class IptvClient {
         } catch (e: IOException) {
             throw LoginException("Não foi possível baixar a lista (${e.message ?: "erro de rede"}).")
         }
-        if (channels.isEmpty()) throw LoginException("A lista M3U não tem nenhum canal.")
-        return Content(groups.values.toList(), channels, null, System.currentTimeMillis())
+        if (channels.isEmpty() && movies.isEmpty() && series.isEmpty()) throw LoginException("A lista M3U está vazia.")
+        return Content(
+            categories = liveGroups.values.toList(),
+            channels = channels,
+            account = null,
+            fetchedAt = System.currentTimeMillis(),
+            movieCategories = movieGroups.values.toList(),
+            movies = movies,
+            seriesCategories = seriesGroups.values.toList(),
+            series = series,
+        )
     }
 
     private val attrRegex = Regex("""([\w-]+)="([^"]*)"""")

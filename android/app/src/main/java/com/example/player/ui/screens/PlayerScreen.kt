@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +57,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.example.player.data.Channel
+import com.example.player.data.PlayItem
 import com.example.player.data.USER_AGENT
 import com.example.player.ui.theme.AppColors
 import com.example.player.ui.theme.AppType
@@ -64,24 +65,28 @@ import com.example.player.ui.theme.InitialsTile
 import com.example.player.ui.theme.LiveBadge
 import com.example.player.ui.theme.PillButton
 import kotlinx.coroutines.delay
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
+/**
+ * Fullscreen player. Live: our own overlay, ▲ ▼ zap through [items].
+ * On demand (movies, episodes): the standard Media3 controller with seek,
+ * and the next item starts when one ends.
+ */
 @OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
-    channels: List<Channel>,
+    items: List<PlayItem>,
     startIndex: Int,
-    urlFor: (Channel) -> String,
+    live: Boolean,
+    onItemShown: (PlayItem) -> Unit,
 ) {
     val context = LocalContext.current
-    var index by remember { mutableIntStateOf(startIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0))) }
+    var index by remember { mutableIntStateOf(startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))) }
     var overlay by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     val focus = remember { FocusRequester() }
+    val shown by rememberUpdatedState(onItemShown)
 
     val player = remember {
         val http = DefaultHttpDataSource.Factory()
@@ -97,19 +102,20 @@ fun PlayerScreen(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                buffering = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
+                buffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_READY) error = null
+                if (state == Player.STATE_ENDED && !live && index < items.size - 1) index++
             }
 
             override fun onPlayerError(e: PlaybackException) {
                 buffering = false
                 error = when (e.errorCode) {
-                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "O servidor recusou este canal (pode estar fora do ar ou no limite de conexões)."
+                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "O servidor recusou este conteúdo (pode estar fora do ar ou no limite de conexões)."
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Sem conexão com o servidor do canal."
+                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Sem conexão com o servidor."
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "Formato de vídeo não suportado por este aparelho."
-                    else -> "Não foi possível reproduzir este canal (${e.errorCodeName})."
+                    else -> "Não foi possível reproduzir (${e.errorCodeName})."
                 }
                 overlay = true
             }
@@ -121,24 +127,24 @@ fun PlayerScreen(
         }
     }
 
-    val channel = channels.getOrNull(index)
+    val item = items.getOrNull(index)
 
     LaunchedEffect(index, attempt) {
-        val ch = channels.getOrNull(index) ?: return@LaunchedEffect
-        val url = urlFor(ch)
-        val item = MediaItem.Builder().setUri(url).apply {
-            if (url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+        val it = items.getOrNull(index) ?: return@LaunchedEffect
+        val media = MediaItem.Builder().setUri(it.url).apply {
+            if (it.url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
         }.build()
         error = null
         buffering = true
-        player.setMediaItem(item)
+        player.setMediaItem(media)
         player.prepare()
         player.playWhenReady = true
         overlay = true
+        shown(it)
     }
 
     LaunchedEffect(overlay, index, error) {
-        if (overlay && error == null) {
+        if (live && overlay && error == null) {
             delay(4_000)
             overlay = false
         }
@@ -147,14 +153,12 @@ fun PlayerScreen(
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     fun zap(delta: Int) {
-        if (channels.isEmpty()) return
-        index = (index + delta + channels.size) % channels.size
+        if (items.isEmpty()) return
+        index = (index + delta + items.size) % items.size
     }
 
-    Box(
+    val keys = if (live) {
         Modifier
-            .fillMaxSize()
-            .background(Color.Black)
             .focusRequester(focus)
             .focusable()
             .onKeyEvent { e ->
@@ -169,17 +173,31 @@ fun PlayerScreen(
                     else -> false
                 }
             }
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { overlay = !overlay })
-            },
+            .pointerInput(Unit) { detectTapGestures(onTap = { overlay = !overlay }) }
+    } else {
+        Modifier
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .then(keys),
     ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    useController = false
+                    useController = !live
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     keepScreenOn = true
+                    setShowNextButton(!live)
+                    setShowPreviousButton(!live)
                     this.player = player
+                    if (!live) {
+                        isFocusable = true
+                        isFocusableInTouchMode = true
+                        post { requestFocus() }
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -204,57 +222,79 @@ fun PlayerScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(msg, style = AppType.title, color = AppColors.text)
-                Text("OK tenta de novo · ▲ ▼ trocam de canal · Voltar sai", style = AppType.body, color = AppColors.textMuted)
+                Text(
+                    if (live) "OK tenta de novo · ▲ ▼ trocam de canal · Voltar sai" else "Voltar para sair",
+                    style = AppType.body,
+                    color = AppColors.textMuted,
+                )
                 PillButton("Tentar novamente", primary = true) { attempt++ }
             }
         }
 
-        AnimatedVisibility(
-            visible = overlay && channel != null,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            if (channel != null) InfoBar(channel, index, channels.size, onPrev = { zap(-1) }, onNext = { zap(1) })
+        if (live) {
+            AnimatedVisibility(
+                visible = overlay && item != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) {
+                if (item != null) LiveInfoBar(item, index, items.size, onPrev = { zap(-1) }, onNext = { zap(1) })
+            }
+        } else if (item != null) {
+            AnimatedVisibility(
+                visible = overlay,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(AppColors.bg.copy(alpha = 0.85f), Color.Transparent)))
+                        .padding(horizontal = 40.dp, vertical = 24.dp),
+                ) {
+                    item.subtitle?.let { Text(it, style = AppType.caption, color = AppColors.accent) }
+                    Text(item.title, style = AppType.title, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            LaunchedEffect(index) {
+                delay(5_000)
+                overlay = false
+            }
         }
     }
 }
 
 @Composable
-private fun InfoBar(channel: Channel, index: Int, total: Int, onPrev: () -> Unit, onNext: () -> Unit) {
-    val now = remember(channel) { SimpleDateFormat("HH:mm", Locale("pt", "BR")).format(Date()) }
+private fun LiveInfoBar(item: PlayItem, index: Int, total: Int, onPrev: () -> Unit, onNext: () -> Unit) {
+    val now = rememberNow()
     Box(
         Modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.bg.copy(alpha = 0.95f))))
-            .padding(horizontal = 48.dp, vertical = 32.dp),
+            .padding(horizontal = 40.dp, vertical = 28.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            if (channel.logo != null) {
-                AsyncImage(
-                    model = channel.logo,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(96.dp),
-                )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            if (item.image != null) {
+                AsyncImage(model = item.image, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.size(84.dp))
             } else {
-                InitialsTile(channel.name, 96.dp, Modifier.size(96.dp))
+                InitialsTile(item.title, 84.dp, Modifier.size(84.dp))
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LiveBadge()
                     Text(
-                        (channel.number?.let { "Canal $it  ·  " } ?: "") + "${index + 1} de $total",
+                        (item.number?.let { "Canal $it  ·  " } ?: "") + "${index + 1} de $total",
                         style = AppType.caption,
                         color = AppColors.accent,
                     )
                 }
-                Text(channel.name, style = AppType.headline, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.title, style = AppType.headline, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("▲ ▼ trocar de canal  ·  OK mostrar/ocultar  ·  Voltar sair", style = AppType.caption, color = AppColors.textMuted)
             }
             Spacer(Modifier.size(8.dp))
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(now, style = AppType.headline, color = AppColors.text)
+                Text(formatTime(now), style = AppType.headline, color = AppColors.text)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PillButton("▲", onClick = onPrev)
                     PillButton("▼", onClick = onNext)
