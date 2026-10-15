@@ -7,6 +7,9 @@ on:
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,9 +41,24 @@ jobs:
         run: |
           mkdir -p out
           cp app/build/outputs/apk/debug/app-debug.apk "out/player-${GITHUB_SHA::7}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk out/player.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: player-apk
-          path: android/out/*.apk
+          path: android/out/player-*.apk
           if-no-files-found: error
+
+      # Stable public link for TV installers (Downloader):
+      # https://github.com/<owner>/<repo>/releases/download/android-latest/player.apk
+      - name: Publish to the android-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Player Android (última versão)
+          body: |
+            APK de teste do player para Android TV, Mi TV Stick, Fire TV, TV Box e celular.
+            Link direto: https://github.com/${{ github.repository }}/releases/download/android-latest/player.apk
+            Commit: ${{ github.sha }}
+          prerelease: true
+          files: android/out/player.apk
