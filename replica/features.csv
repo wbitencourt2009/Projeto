@@ -5,11 +5,11 @@ Optional external EPG (XMLTV) URL for M3U,login,must,yes,no,S04; gzip support
 Account info and expiry date from the server,account,must,yes,yes,S07 S26; Xtream user_info
 Download and cache categories and streams on device,data,must,yes,yes,S06; Room database
 Live TV categories and channel list,live,must,yes,yes,S08
-Live player fullscreen with info overlay now/next,live,must,yes,partial,S09; Media3 ExoPlayer HLS and TS
+Live player fullscreen with info overlay now/next,live,must,yes,yes,S09; Media3 ExoPlayer HLS and TS
 Channel up/down and number keys while watching,live,must,yes,partial,F04
 Quick channel list overlay inside the player,live,must,yes,no,S09
 EPG now/next on channel list,epg,must,yes,no,S08
-Full EPG grid (TV Guide),epg,must,yes,no,S10
+Full EPG grid (TV Guide),epg,must,yes,partial,S10
 Movies categories and poster grid,vod,must,yes,yes,S13
 Movie detail page with plot rating cast,vod,must,yes,no,S14; get_vod_info
 Series categories and grid,series,must,yes,yes,S15
@@ -23,7 +23,7 @@ Error and retry when a stream fails,player,must,yes,yes,S09 S17
 Catch-up / archive playback from the EPG,catchup,should,yes,no,S11 S12 F06; Xtream timeshift URL
 Catch-up section by channel and day,catchup,should,yes,no,S12
 Resume position for movies and episodes,vod,should,yes,no,S14 S20
-Continue watching and recent channels,vod,should,yes,partial,S20
+Continue watching and recent channels,vod,should,yes,yes,S20
 Next episode autoplay,series,should,yes,yes,S17
 Audio track and subtitle selection,player,should,yes,no,S17
 Aspect ratio / zoom modes,player,should,yes,no,S17 S22
