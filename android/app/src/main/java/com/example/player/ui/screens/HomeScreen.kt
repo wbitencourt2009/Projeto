@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +63,14 @@ fun HomeScreen(
     restoreKind: Kind? = null,
 ) {
     val now = rememberNow()
+    var confirmLogout by remember { mutableStateOf(false) }
+    if (confirmLogout) {
+        OptionsDialog(
+            title = "Desconectar esta conta? O login, favoritos e histórico serão apagados. Para só fechar o app, use o botão Voltar ou Início do controle.",
+            options = listOf("⏻  Sim, desconectar" to onLogout),
+            onDismiss = { confirmLogout = false },
+        )
+    }
     val liveTile = remember { FocusRequester() }
     val movieTile = remember { FocusRequester() }
     val seriesTile = remember { FocusRequester() }
@@ -135,7 +146,7 @@ fun HomeScreen(
                     SideButton("☰  Guia de TV", onGuide)
                     SideButton("♥  Favoritos", onFavourites)
                     SideButton("⟳  Atualizar lista", onRefresh)
-                    SideButton("⏻  Sair", onLogout)
+                    SideButton("⏻  Desconectar", onClick = { confirmLogout = true })
                 }
             }
 

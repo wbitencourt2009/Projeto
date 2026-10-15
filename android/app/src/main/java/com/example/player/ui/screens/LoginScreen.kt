@@ -38,13 +38,14 @@ import com.example.player.ui.theme.PillButton
 import com.example.player.ui.theme.heroBackdrop
 
 @Composable
-fun LoginScreen(error: String?, onLogin: (Profile) -> Unit) {
-    var xtream by rememberSaveable { mutableStateOf(true) }
-    var name by rememberSaveable { mutableStateOf("Minha lista") }
-    var server by rememberSaveable { mutableStateOf("") }
-    var user by rememberSaveable { mutableStateOf("") }
-    var pass by rememberSaveable { mutableStateOf("") }
-    var m3u by rememberSaveable { mutableStateOf("") }
+fun LoginScreen(error: String?, initial: Profile? = null, onLogin: (Profile) -> Unit) {
+    // Refilled with the last attempt, so a wrong password doesn't mean typing everything again.
+    var xtream by rememberSaveable { mutableStateOf(initial?.type != Profile.TYPE_M3U) }
+    var name by rememberSaveable { mutableStateOf(initial?.name ?: "Minha lista") }
+    var server by rememberSaveable { mutableStateOf(initial?.server.orEmpty()) }
+    var user by rememberSaveable { mutableStateOf(initial?.username.orEmpty()) }
+    var pass by rememberSaveable { mutableStateOf(initial?.password.orEmpty()) }
+    var m3u by rememberSaveable { mutableStateOf(initial?.m3uUrl.orEmpty()) }
     var localError by rememberSaveable { mutableStateOf<String?>(null) }
 
     Box(
@@ -158,6 +159,39 @@ fun LoadingScreen(step: String) {
             androidx.compose.material3.CircularProgressIndicator(color = AppColors.accent, strokeWidth = 4.dp)
             Text(step, style = AppType.title, color = AppColors.text)
             Text("Listas grandes podem levar alguns segundos.", style = AppType.body, color = AppColors.textMuted)
+        }
+    }
+}
+
+/** Saved login, but the list could not be downloaded. Keeps the login; offers retry. */
+@Composable
+fun OfflineScreen(message: String, onRetry: () -> Unit, onChangeLogin: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(heroBackdrop()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .widthIn(max = 640.dp)
+                .padding(32.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(AppColors.glass.copy(alpha = 0.92f))
+                .padding(32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Servidor sem resposta", style = AppType.headline, color = AppColors.text)
+            Text(message, style = AppType.body, color = AppColors.danger)
+            Text(
+                "Seu login continua salvo. Pode ser instabilidade no servidor do provedor ou na internet. Tente de novo em instantes.",
+                style = AppType.body,
+                color = AppColors.textMuted,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                PillButton("Tentar novamente", primary = true, onClick = onRetry)
+                PillButton("Trocar login", onClick = onChangeLogin)
+            }
         }
     }
 }

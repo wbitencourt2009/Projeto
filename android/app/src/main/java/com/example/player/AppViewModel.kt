@@ -28,6 +28,8 @@ sealed interface Screen {
     data object Splash : Screen
     data object Login : Screen
     data object Loading : Screen
+    /** Saved login, but the list could not be downloaded (server down / bad signal). */
+    data class Offline(val message: String) : Screen
     data object Home : Screen
     data class Browse(val kind: Kind, val categoryId: String = BrowseIds.ALL) : Screen
     data class SeriesInfo(val series: Series) : Screen
@@ -58,6 +60,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var loginError by mutableStateOf<String?>(null)
         private set
+    /** Last login typed, used to refill the form after an error. */
+    var lastAttempt by mutableStateOf<Profile?>(null)
+        private set
     var favourites by mutableStateOf(library.favourites())
         private set
     var recent by mutableStateOf(library.recent())
@@ -75,6 +80,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             profile = saved
+            lastAttempt = saved
             val cached = withContext(Dispatchers.IO) { store.loadContent() }
             if (cached != null) {
                 content = cached
@@ -121,12 +127,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun login(newProfile: Profile) {
         loginError = null
+        lastAttempt = newProfile
         viewModelScope.launch { load(newProfile, isNewLogin = true) }
     }
 
     fun refresh() {
         val p = profile ?: return
         viewModelScope.launch { load(p, isNewLogin = false) }
+    }
+
+    /** From the offline screen: edit the saved login without deleting favourites. */
+    fun changeLogin() {
+        loginError = null
+        reset(Screen.Login)
     }
 
     fun logout() {
@@ -166,8 +179,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun onLoadFailed(message: String, isNewLogin: Boolean) {
         loginError = message
-        // A failed refresh keeps the old list usable.
-        reset(if (!isNewLogin && content != null) Screen.Home else Screen.Login)
+        reset(
+            when {
+                // A failed refresh keeps the old list usable.
+                !isNewLogin && content != null -> Screen.Home
+                // Saved login but nothing cached yet: keep the login and offer to try again.
+                !isNewLogin && profile != null -> Screen.Offline(message)
+                else -> Screen.Login
+            }
+        )
     }
 
     // ---- library ----
@@ -254,7 +274,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val byId = c.channels.associateBy { it.id }
                 val items = channels.mapNotNull { t ->
                     byId[t.id]?.let { ch ->
-                        PlayItem(t.key, ch.name, subtitle = null, image = ch.logo, url = client.liveUrl(p, ch), number = ch.number)
+                        PlayItem(t.key, ch.name, subtitle = null, image = ch.logo, url = client.liveUrl(p, ch), number = ch.number, fallbackUrl = client.liveFallbackUrl(p, ch))
                     }
                 }
                 val index = items.indexOfFirst { it.key == tile.key }.coerceAtLeast(0)

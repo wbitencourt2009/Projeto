@@ -33,8 +33,12 @@ class IptvClient {
         if (profile.isXtream) fetchXtream(profile, onStep) else fetchM3u(profile, onStep)
     }
 
-    fun liveUrl(profile: Profile, channel: Channel): String =
-        if (profile.isXtream) "${profile.server}/live/${auth(profile)}/${channel.id}.ts" else channel.url.orEmpty()
+    fun liveUrl(profile: Profile, channel: Channel, ext: String = "ts"): String =
+        if (profile.isXtream) "${profile.server}/live/${auth(profile)}/${channel.id}.$ext" else channel.url.orEmpty()
+
+    /** HLS variant of a live channel, tried when the .ts stream keeps failing. Xtream only. */
+    fun liveFallbackUrl(profile: Profile, channel: Channel): String? =
+        if (profile.isXtream) liveUrl(profile, channel, "m3u8") else null
 
     fun movieUrl(profile: Profile, movie: Movie): String =
         if (profile.isXtream) "${profile.server}/movie/${auth(profile)}/${movie.id}.${movie.ext ?: "mp4"}" else movie.url.orEmpty()

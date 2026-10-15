@@ -133,6 +133,8 @@ data class PlayItem(
     val image: String? = null,
     val url: String,
     val number: Int? = null,
+    /** Second url to try when the first keeps failing (live: .m3u8 instead of .ts). */
+    val fallbackUrl: String? = null,
 )
 
 /** A tile in a grid or search result: a channel, a movie or a series. */

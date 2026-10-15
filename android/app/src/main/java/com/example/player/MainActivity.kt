@@ -23,6 +23,7 @@ import com.example.player.ui.screens.GuideScreen
 import com.example.player.ui.screens.HomeScreen
 import com.example.player.ui.screens.LoadingScreen
 import com.example.player.ui.screens.LoginScreen
+import com.example.player.ui.screens.OfflineScreen
 import com.example.player.ui.screens.PlayerScreen
 import com.example.player.ui.screens.SearchScreen
 import com.example.player.ui.screens.SeriesScreen
@@ -65,7 +66,8 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
 
     when (val s = vm.screen) {
         Screen.Splash -> LoadingScreen("Abrindo")
-        Screen.Login -> LoginScreen(error = vm.loginError, onLogin = vm::login)
+        Screen.Login -> LoginScreen(error = vm.loginError, initial = vm.lastAttempt, onLogin = vm::login)
+        is Screen.Offline -> OfflineScreen(message = s.message, onRetry = vm::refresh, onChangeLogin = vm::changeLogin)
         Screen.Loading -> LoadingScreen(vm.loadingStep)
         Screen.Home -> {
             if (content == null) {

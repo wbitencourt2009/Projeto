@@ -53,6 +53,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -88,6 +89,10 @@ fun PlayerScreen(
     var buffering by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
+    // Automatic reconnection when the server signal is bad.
+    var retries by remember { mutableIntStateOf(0) }
+    var retryPending by remember { mutableStateOf(false) }
+    var lastProblem by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val shown by rememberUpdatedState(onItemShown)
 
@@ -97,8 +102,13 @@ fun PlayerScreen(
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(20_000)
+        // Bigger buffer than the default so short drops in the server signal don't stop the picture.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(20_000, 60_000, 2_000, 4_000)
+            .build()
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(http))
+            .setLoadControl(loadControl)
             .build()
     }
 
@@ -106,13 +116,22 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_READY) error = null
+                if (state == Player.STATE_READY) {
+                    error = null
+                    retries = 0
+                    retryPending = false
+                }
                 if (state == Player.STATE_ENDED && !live && index < items.size - 1) index++
             }
 
             override fun onPlayerError(e: PlaybackException) {
-                buffering = false
-                error = when (e.errorCode) {
+                if (e.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                    // Live stream fell behind (slow connection): jump back to the live edge.
+                    player.seekToDefaultPosition()
+                    player.prepare()
+                    return
+                }
+                val message = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "O servidor recusou este conteúdo (pode estar fora do ar ou no limite de conexões)."
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "Sem conexão com o servidor."
@@ -120,7 +139,14 @@ fun PlayerScreen(
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "Formato de vídeo não suportado por este aparelho."
                     else -> "Não foi possível reproduzir (${e.errorCodeName})."
                 }
-                overlay = true
+                if (retries < MAX_RETRIES) {
+                    lastProblem = message
+                    retryPending = true
+                } else {
+                    buffering = false
+                    error = message
+                    overlay = true
+                }
             }
         }
         player.addListener(listener)
@@ -132,10 +158,36 @@ fun PlayerScreen(
 
     val item = items.getOrNull(index)
 
+    // Retry with growing pauses; live channels alternate between .ts and .m3u8.
+    LaunchedEffect(retryPending) {
+        if (!retryPending) return@LaunchedEffect
+        delay(1_500L * (retries + 1))
+        retries++
+        retryPending = false
+        attempt++
+    }
+
+    // Stuck loading for too long counts as a failure and reconnects.
+    LaunchedEffect(buffering, attempt, index) {
+        if (!buffering || error != null) return@LaunchedEffect
+        delay(STALL_TIMEOUT_MS)
+        if (buffering && !retryPending && error == null) {
+            if (retries < MAX_RETRIES) {
+                lastProblem = "O servidor está lento."
+                retryPending = true
+            } else {
+                error = "O servidor não está respondendo. Tente de novo em instantes ou escolha outro canal."
+                buffering = false
+                overlay = true
+            }
+        }
+    }
+
     LaunchedEffect(index, attempt) {
         val it = items.getOrNull(index) ?: return@LaunchedEffect
-        val media = MediaItem.Builder().setUri(it.url).apply {
-            if (it.url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+        val url = if (retries % 2 == 1 && it.fallbackUrl != null) it.fallbackUrl else it.url
+        val media = MediaItem.Builder().setUri(url).apply {
+            if (url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
         }.build()
         error = null
         buffering = true
@@ -161,6 +213,8 @@ fun PlayerScreen(
 
     fun zap(delta: Int) {
         if (items.isEmpty()) return
+        retries = 0
+        retryPending = false
         index = (index + delta + items.size) % items.size
     }
 
@@ -174,7 +228,7 @@ fun PlayerScreen(
                     Key.DirectionUp, Key.ChannelUp, Key.PageUp -> { zap(-1); true }
                     Key.DirectionDown, Key.ChannelDown, Key.PageDown -> { zap(1); true }
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        if (error != null) attempt++ else overlay = !overlay
+                        if (error != null) { retries = 0; attempt++ } else overlay = !overlay
                         true
                     }
                     else -> false
@@ -210,12 +264,26 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        if (buffering && error == null) {
-            CircularProgressIndicator(
-                color = AppColors.accent,
-                strokeWidth = 4.dp,
-                modifier = Modifier.align(Alignment.Center).size(64.dp),
-            )
+        if ((buffering || retryPending) && error == null) {
+            Column(
+                Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                CircularProgressIndicator(color = AppColors.accent, strokeWidth = 4.dp, modifier = Modifier.size(64.dp))
+                if (retries > 0 || retryPending) {
+                    Column(
+                        Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AppColors.glass.copy(alpha = 0.85f))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("Sinal fraco — reconectando (${retries + 1}/$MAX_RETRIES)", style = AppType.label, color = AppColors.text)
+                        if (lastProblem.isNotEmpty()) Text(lastProblem, style = AppType.caption, color = AppColors.textMuted)
+                    }
+                }
+            }
         }
 
         error?.let { msg ->
@@ -234,7 +302,7 @@ fun PlayerScreen(
                     style = AppType.body,
                     color = AppColors.textMuted,
                 )
-                PillButton("Tentar novamente", primary = true) { attempt++ }
+                PillButton("Tentar novamente", primary = true) { retries = 0; attempt++ }
             }
         }
 
@@ -347,3 +415,6 @@ private fun LiveInfoBar(
         }
     }
 }
+
+private const val MAX_RETRIES = 5
+private const val STALL_TIMEOUT_MS = 20_000L
