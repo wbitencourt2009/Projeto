@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -171,3 +173,36 @@ fun EmptyMessage(title: String, line: String, modifier: Modifier = Modifier) {
         Text(line, style = AppType.body, color = AppColors.textMuted, textAlign = TextAlign.Center)
     }
 }
+
+/** Small glass dialog with one button per option and a Cancel button. Works with the remote. */
+@Composable
+fun OptionsDialog(title: String, options: List<Pair<String, () -> Unit>>, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(AppColors.glass)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, style = AppType.title, color = AppColors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            options.forEachIndexed { i, (label, action) ->
+                com.example.player.ui.theme.PillButton(
+                    label,
+                    primary = i == 0,
+                    modifier = if (i == 0) Modifier.fillMaxWidth().focusRequester(first) else Modifier.fillMaxWidth(),
+                ) {
+                    action()
+                    onDismiss()
+                }
+            }
+            com.example.player.ui.theme.PillButton("Cancelar", modifier = Modifier.fillMaxWidth(), onClick = onDismiss)
+        }
+    }
+    LaunchedEffect(Unit) {
+        delay(100)
+        runCatching { first.requestFocus() }
+    }
+}
+

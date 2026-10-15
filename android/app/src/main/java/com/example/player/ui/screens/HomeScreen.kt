@@ -53,6 +53,7 @@ fun HomeScreen(
     message: String?,
     onOpen: (Kind) -> Unit,
     onSearch: () -> Unit,
+    onGuide: () -> Unit,
     onFavourites: () -> Unit,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
@@ -119,6 +120,7 @@ fun HomeScreen(
                     Modifier.width(190.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    SideButton("☰  Guia de TV", onGuide)
                     SideButton("♥  Favoritos", onFavourites)
                     SideButton("⟳  Atualizar lista", onRefresh)
                     SideButton("⏻  Sair", onLogout)

@@ -19,6 +19,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.example.player.data.Kind
 import com.example.player.data.Tile
 import com.example.player.ui.screens.BrowseScreen
+import com.example.player.ui.screens.GuideScreen
 import com.example.player.ui.screens.HomeScreen
 import com.example.player.ui.screens.LoadingScreen
 import com.example.player.ui.screens.LoginScreen
@@ -76,6 +77,7 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                     message = vm.loginError,
                     onOpen = { kind -> vm.push(Screen.Browse(kind)) },
                     onSearch = { vm.push(Screen.Search) },
+                    onGuide = { vm.push(Screen.Guide()) },
                     onFavourites = { vm.push(Screen.Browse(Kind.LIVE, BrowseIds.FAVOURITES)) },
                     onRefresh = vm::refresh,
                     onLogout = vm::logout,
@@ -95,6 +97,9 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                     onSelect = { id -> if (id != s.categoryId) vm.replaceTop(s.copy(categoryId = id)) },
                     onOpen = vm::open,
                     onToggleFavourite = vm::toggleFavourite,
+                    onRemoveRecent = vm::removeRecent,
+                    onClearRecent = { vm.clearRecent(s.kind) },
+                    onGuide = if (s.kind == Kind.LIVE) ({ vm.push(Screen.Guide(s.categoryId)) }) else null,
                     onBack = { vm.back() },
                 )
             }
@@ -119,11 +124,23 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                 )
             }
         }
+        is Screen.Guide -> {
+            val channels = remember(content, s.categoryId) { vm.channelsFor(s.categoryId) }
+            GuideScreen(
+                channels = channels,
+                initialChannelId = s.channelId,
+                supported = vm.supportsEpg,
+                loadEpg = vm::loadEpg,
+                onChannelFocused = { id -> vm.replaceTop(s.copy(channelId = id)) },
+                onPlay = { id -> vm.playChannel(channels, id) },
+            )
+        }
         is Screen.Player -> PlayerScreen(
             items = s.items,
             startIndex = s.index,
             live = s.live,
             onItemShown = { if (s.live) vm.onLivePlayed(it.key) },
+            loadEpg = { item -> if (item.key.startsWith("live:")) vm.loadEpg(item.key.removePrefix("live:")) else emptyList() },
         )
     }
 }

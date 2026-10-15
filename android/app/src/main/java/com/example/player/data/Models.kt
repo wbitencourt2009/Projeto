@@ -156,3 +156,14 @@ fun Movie.toItem() = Tile(Kind.MOVIE, id, name, poster, categoryId)
 fun Series.toItem() = Tile(Kind.SERIES, id, name, cover, categoryId)
 
 class LoginException(message: String) : Exception(message)
+
+/** One EPG entry. Times are epoch milliseconds. */
+data class Programme(
+    val start: Long,
+    val end: Long,
+    val title: String,
+    val description: String? = null,
+    val hasArchive: Boolean = false,
+) {
+    fun isNow(now: Long) = now in start until end
+}

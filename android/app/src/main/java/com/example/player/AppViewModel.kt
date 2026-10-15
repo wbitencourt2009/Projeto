@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.player.data.Channel
 import com.example.player.data.Content
 import com.example.player.data.Episode
 import com.example.player.data.IptvClient
@@ -14,6 +15,7 @@ import com.example.player.data.Library
 import com.example.player.data.LoginException
 import com.example.player.data.PlayItem
 import com.example.player.data.Profile
+import com.example.player.data.Programme
 import com.example.player.data.ProfileStore
 import com.example.player.data.Series
 import com.example.player.data.SeriesDetail
@@ -30,6 +32,7 @@ sealed interface Screen {
     data class Browse(val kind: Kind, val categoryId: String = BrowseIds.ALL) : Screen
     data class SeriesInfo(val series: Series) : Screen
     data object Search : Screen
+    data class Guide(val categoryId: String = BrowseIds.ALL, val channelId: String? = null) : Screen
     data class Player(val items: List<PlayItem>, val index: Int, val live: Boolean) : Screen
 }
 
@@ -141,6 +144,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             profile = p
             content = fetched
+            epgCache.clear()
             loginError = null
             reset(Screen.Home)
         } catch (e: LoginException) {
@@ -163,6 +167,55 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleFavourite(key: String) {
         favourites = if (key in favourites) favourites - key else favourites + key
         library.saveFavourites(favourites)
+    }
+
+    fun removeRecent(key: String) {
+        recent = recent - key
+        library.saveRecent(recent)
+    }
+
+    fun clearRecent(kind: Kind) {
+        val prefix = kind.name.lowercase() + ":"
+        recent = recent.filterNot { it.startsWith(prefix) }
+        library.saveRecent(recent)
+    }
+
+    // ---- EPG ----
+
+    private val epgCache = HashMap<String, List<Programme>>()
+
+    val supportsEpg: Boolean get() = profile?.isXtream == true
+
+    suspend fun loadEpg(channelId: String): List<Programme> {
+        epgCache[channelId]?.let { return it }
+        val p = profile ?: return emptyList()
+        val ch = content?.channels?.firstOrNull { it.id == channelId } ?: return emptyList()
+        val list = try {
+            client.epg(p, ch)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        epgCache[channelId] = list
+        return list
+    }
+
+    /** Channels for the guide: a category, favourites, recent, or all. */
+    fun channelsFor(categoryId: String): List<Channel> {
+        val c = content ?: return emptyList()
+        return when (categoryId) {
+            BrowseIds.ALL -> c.channels
+            BrowseIds.FAVOURITES -> favourites.filter { it.startsWith("live:") }
+                .mapNotNull { k -> c.channels.firstOrNull { it.id == k.removePrefix("live:") } }
+            BrowseIds.RECENT -> recent.filter { it.startsWith("live:") }
+                .mapNotNull { k -> c.channels.firstOrNull { it.id == k.removePrefix("live:") } }
+            else -> c.channelsByCategory[categoryId].orEmpty()
+        }
+    }
+
+    fun playChannel(channels: List<Channel>, channelId: String) {
+        val tiles = channels.map { Tile(Kind.LIVE, it.id, it.name, it.logo, it.categoryId, it.number) }
+        val tile = tiles.firstOrNull { it.id == channelId } ?: return
+        open(tile, tiles)
     }
 
     private fun markWatched(key: String) {

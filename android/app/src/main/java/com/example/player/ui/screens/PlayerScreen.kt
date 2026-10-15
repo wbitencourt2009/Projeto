@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,7 +79,9 @@ fun PlayerScreen(
     startIndex: Int,
     live: Boolean,
     onItemShown: (PlayItem) -> Unit,
+    loadEpg: suspend (PlayItem) -> List<com.example.player.data.Programme> = { emptyList() },
 ) {
+    var programmes by remember { mutableStateOf<List<com.example.player.data.Programme>>(emptyList()) }
     val context = LocalContext.current
     var index by remember { mutableIntStateOf(startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))) }
     var overlay by remember { mutableStateOf(true) }
@@ -141,6 +144,10 @@ fun PlayerScreen(
         player.playWhenReady = true
         overlay = true
         shown(it)
+        if (live) {
+            programmes = emptyList()
+            programmes = loadEpg(it)
+        }
     }
 
     LaunchedEffect(overlay, index, error) {
@@ -238,7 +245,7 @@ fun PlayerScreen(
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                if (item != null) LiveInfoBar(item, index, items.size, onPrev = { zap(-1) }, onNext = { zap(1) })
+                if (item != null) LiveInfoBar(item, index, items.size, programmes, onPrev = { zap(-1) }, onNext = { zap(1) })
             }
         } else if (item != null) {
             AnimatedVisibility(
@@ -266,8 +273,17 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun LiveInfoBar(item: PlayItem, index: Int, total: Int, onPrev: () -> Unit, onNext: () -> Unit) {
+private fun LiveInfoBar(
+    item: PlayItem,
+    index: Int,
+    total: Int,
+    programmes: List<com.example.player.data.Programme>,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+) {
     val now = rememberNow()
+    val current = programmes.firstOrNull { it.isNow(now) }
+    val next = programmes.firstOrNull { it.start >= (current?.end ?: now) }
     Box(
         Modifier
             .fillMaxWidth()
@@ -290,6 +306,34 @@ private fun LiveInfoBar(item: PlayItem, index: Int, total: Int, onPrev: () -> Un
                     )
                 }
                 Text(item.title, style = AppType.headline, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (current != null) {
+                    Text(
+                        "Agora: ${formatTime(current.start)} – ${formatTime(current.end)}  ${current.title}",
+                        style = AppType.label,
+                        color = AppColors.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val pct = ((now - current.start).toFloat() / (current.end - current.start)).coerceIn(0f, 1f)
+                    Box(
+                        Modifier
+                            .fillMaxWidth(0.6f)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(AppColors.border),
+                    ) {
+                        Box(Modifier.fillMaxWidth(pct).height(4.dp).background(AppColors.accent))
+                    }
+                }
+                if (next != null) {
+                    Text(
+                        "A seguir: ${formatTime(next.start)}  ${next.title}",
+                        style = AppType.caption,
+                        color = AppColors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text("▲ ▼ trocar de canal  ·  OK mostrar/ocultar  ·  Voltar sair", style = AppType.caption, color = AppColors.textMuted)
             }
             Spacer(Modifier.size(8.dp))

@@ -76,6 +76,40 @@ class IptvClient {
         SeriesDetail(series, info?.str("plot") ?: series.plot, backdrop?.takeIf { it.startsWith("http") } ?: series.cover, episodes)
     }
 
+    /** Full guide of one channel (all days the server keeps). Xtream only. */
+    suspend fun epg(profile: Profile, channel: Channel): List<Programme> = withContext(Dispatchers.IO) {
+        if (!profile.isXtream) return@withContext emptyList()
+        val root = getJson("${base(profile)}&action=get_simple_data_table&stream_id=${channel.id}") as? JsonObject
+            ?: return@withContext emptyList()
+        objects(root["epg_listings"] ?: JsonArray(emptyList()))
+            .mapNotNull { o ->
+                val start = o.str("start_timestamp")?.toLongOrNull() ?: return@mapNotNull null
+                val end = o.str("stop_timestamp")?.toLongOrNull() ?: o.str("end_timestamp")?.toLongOrNull() ?: return@mapNotNull null
+                if (end <= start) return@mapNotNull null
+                Programme(
+                    start = start * 1000,
+                    end = end * 1000,
+                    title = decode64(o.str("title")).ifBlank { "Sem título" },
+                    description = decode64(o.str("description")).takeIf { it.isNotBlank() },
+                    hasArchive = o.str("has_archive") == "1",
+                )
+            }
+            .distinctBy { it.start }
+            .sortedBy { it.start }
+    }
+
+    /** Xtream sends EPG text in base64; some panels send plain text. */
+    private fun decode64(value: String?): String {
+        if (value.isNullOrBlank()) return ""
+        return try {
+            val bytes = android.util.Base64.decode(value, android.util.Base64.DEFAULT)
+            val text = String(bytes, Charsets.UTF_8)
+            if (text.any { it == '\uFFFD' || (it.isISOControl() && it != '\n' && it != '\r' && it != '\t') }) value else text.trim()
+        } catch (e: IllegalArgumentException) {
+            value
+        }
+    }
+
     // ---- Xtream Codes ----
 
     private fun base(profile: Profile) =

@@ -65,8 +65,13 @@ fun BrowseScreen(
     onSelect: (String) -> Unit,
     onOpen: (Tile, List<Tile>) -> Unit,
     onToggleFavourite: (String) -> Unit,
+    onRemoveRecent: (String) -> Unit,
+    onClearRecent: () -> Unit,
+    onGuide: (() -> Unit)?,
     onBack: () -> Unit,
 ) {
+    var menuFor by remember { mutableStateOf<Tile?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
     val byKey = remember(tiles) { tiles.associateBy { it.key } }
     val byCategory = remember(tiles) { tiles.groupBy { it.categoryId ?: Content.UNCATEGORISED } }
     val categories: List<Category> = remember(content, kind) {
@@ -167,7 +172,15 @@ fun BrowseScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(selectedName, style = AppType.title, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${formatCount(visible.size)} itens · segure OK para favoritar", style = AppType.caption, color = AppColors.textMuted)
+                        Text("${formatCount(visible.size)} itens · segure OK para mais opções", style = AppType.caption, color = AppColors.textMuted)
+                    }
+                    if (selectedId == BrowseIds.RECENT && recentTiles.isNotEmpty()) {
+                        PillButton("🗑  Limpar histórico", onClick = { confirmClear = true })
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    if (onGuide != null) {
+                        PillButton("☰  Guia", onClick = onGuide)
+                        Spacer(Modifier.width(10.dp))
                     }
                     PillButton(if (searching) "✕" else "⌕", onClick = {
                         searching = !searching
@@ -221,13 +234,32 @@ fun BrowseScreen(
                                 tile = t,
                                 favourite = t.key in favSet,
                                 onClick = { onOpen(t, visible) },
-                                onLongClick = { onToggleFavourite(t.key) },
+                                onLongClick = { menuFor = t },
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    menuFor?.let { t ->
+        val inRecent = t.key in recent
+        OptionsDialog(
+            title = t.title,
+            options = buildList {
+                add((if (t.key in favSet) "♥  Remover dos favoritos" else "♡  Adicionar aos favoritos") to { onToggleFavourite(t.key) })
+                if (inRecent) add("🗑  Remover de assistidos recentemente" to { onRemoveRecent(t.key) })
+            },
+            onDismiss = { menuFor = null },
+        )
+    }
+    if (confirmClear) {
+        OptionsDialog(
+            title = "Limpar todo o histórico de $title?",
+            options = listOf("🗑  Sim, limpar" to onClearRecent),
+            onDismiss = { confirmClear = false },
+        )
     }
 }
 
