@@ -1,0 +1,32 @@
+name: LG webOS IPK
+
+on:
+  push:
+    paths:
+      - "webos/**"
+      - ".github/workflows/webos-ipk.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build and package
+        run: |
+          npm ci
+          npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: player-webos-ipk
+          path: webos/out/*.ipk
+          if-no-files-found: error
