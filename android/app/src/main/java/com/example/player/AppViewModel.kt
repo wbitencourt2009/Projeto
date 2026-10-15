@@ -87,6 +87,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- navigation ----
 
+    /** Last focused item per list, so Back from the player lands where the user was. Not observed. */
+    private val lastFocused = HashMap<Kind, String>()
+    fun rememberFocus(kind: Kind, key: String) { lastFocused[kind] = key }
+    fun lastFocus(kind: Kind): String? = lastFocused[kind]
+
+    /** Hub tile used last, refocused when coming back to the home screen. */
+    var lastHubKind: Kind? = null
+
     fun push(to: Screen) {
         stack = stack + to
     }
@@ -99,6 +107,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Returns false when there is nothing to go back to (the app should close). */
     fun back(): Boolean {
         if (stack.size <= 1) return false
+        // Leaving a list for good (not the player on top of it): forget its focus.
+        (stack.last() as? Screen.Browse)?.let { lastFocused.remove(it.kind) }
         stack = stack.dropLast(1)
         return true
     }

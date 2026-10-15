@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
@@ -69,6 +71,8 @@ fun BrowseScreen(
     onClearRecent: () -> Unit,
     onGuide: (() -> Unit)?,
     onBack: () -> Unit,
+    restoreKey: String? = null,
+    onTileFocused: (String) -> Unit = {},
 ) {
     var menuFor by remember { mutableStateOf<Tile?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -114,7 +118,20 @@ fun BrowseScreen(
     }
     val selectedName = entries.firstOrNull { it.id == selectedId }?.name ?: "Todos"
     val firstCategory = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstCategory.requestFocus() } }
+    val restoreFocus = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
+    // Coming back from the player: scroll to the item that was opened and focus it.
+    // First visit (or the item is no longer in this list): focus the category list.
+    LaunchedEffect(Unit) {
+        val index = if (restoreKey == null) -1 else visible.indexOfFirst { it.key == restoreKey }
+        if (index >= 0) {
+            gridState.scrollToItem(index)
+            withFrameNanos { }
+            withFrameNanos { }
+            if (runCatching { restoreFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+        runCatching { firstCategory.requestFocus() }
+    }
 
     Box(Modifier.fillMaxSize()) {
         SpaceBackground()
@@ -223,6 +240,7 @@ fun BrowseScreen(
                     )
                 } else {
                     LazyVerticalGrid(
+                        state = gridState,
                         columns = GridCells.Adaptive(minSize = if (kind == Kind.LIVE) 150.dp else 118.dp),
                         contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 32.dp),
                         horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -233,6 +251,8 @@ fun BrowseScreen(
                             TileCard(
                                 tile = t,
                                 favourite = t.key in favSet,
+                                focusModifier = if (t.key == restoreKey) Modifier.focusRequester(restoreFocus) else Modifier,
+                                onFocused = { onTileFocused(t.key) },
                                 onClick = { onOpen(t, visible) },
                                 onLongClick = { menuFor = t },
                             )

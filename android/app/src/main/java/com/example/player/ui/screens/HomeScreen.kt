@@ -57,10 +57,20 @@ fun HomeScreen(
     onFavourites: () -> Unit,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    restoreKind: Kind? = null,
 ) {
     val now = rememberNow()
-    val firstTile = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { firstTile.requestFocus() } }
+    val liveTile = remember { FocusRequester() }
+    val movieTile = remember { FocusRequester() }
+    val seriesTile = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        val target = when (restoreKind) {
+            Kind.MOVIE -> movieTile
+            Kind.SERIES -> seriesTile
+            else -> liveTile
+        }
+        runCatching { target.requestFocus() }
+    }
 
     Box(Modifier.fillMaxSize()) {
         SpaceBackground()
@@ -96,7 +106,7 @@ fun HomeScreen(
                     images = remember(content) { content.channels.mapNotNull { it.logo }.take(9) },
                     names = remember(content) { content.channels.take(9).map { it.name } },
                     logos = true,
-                    modifier = Modifier.focusRequester(firstTile),
+                    modifier = Modifier.focusRequester(liveTile),
                     onClick = { onOpen(Kind.LIVE) },
                 )
                 HubTile(
@@ -105,6 +115,7 @@ fun HomeScreen(
                     images = remember(content) { content.movies.mapNotNull { it.poster }.take(9) },
                     names = remember(content) { content.movies.take(9).map { it.name } },
                     logos = false,
+                    modifier = Modifier.focusRequester(movieTile),
                     onClick = { onOpen(Kind.MOVIE) },
                 )
                 HubTile(
@@ -113,6 +124,7 @@ fun HomeScreen(
                     images = remember(content) { content.series.mapNotNull { it.cover }.take(9) },
                     names = remember(content) { content.series.take(9).map { it.name } },
                     logos = false,
+                    modifier = Modifier.focusRequester(seriesTile),
                     onClick = { onOpen(Kind.SERIES) },
                 )
                 Spacer(Modifier.weight(0.05f))

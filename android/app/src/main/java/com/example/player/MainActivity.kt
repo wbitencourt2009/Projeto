@@ -75,12 +75,16 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                     content = content,
                     username = vm.profile?.username ?: vm.profile?.name.orEmpty(),
                     message = vm.loginError,
-                    onOpen = { kind -> vm.push(Screen.Browse(kind)) },
+                    onOpen = { kind ->
+                        vm.lastHubKind = kind
+                        vm.push(Screen.Browse(kind))
+                    },
                     onSearch = { vm.push(Screen.Search) },
                     onGuide = { vm.push(Screen.Guide()) },
                     onFavourites = { vm.push(Screen.Browse(Kind.LIVE, BrowseIds.FAVOURITES)) },
                     onRefresh = vm::refresh,
                     onLogout = vm::logout,
+                    restoreKind = vm.lastHubKind,
                 )
             }
         }
@@ -101,6 +105,8 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                     onClearRecent = { vm.clearRecent(s.kind) },
                     onGuide = if (s.kind == Kind.LIVE) ({ vm.push(Screen.Guide(s.categoryId)) }) else null,
                     onBack = { vm.back() },
+                    restoreKey = vm.lastFocus(s.kind),
+                    onTileFocused = { key -> vm.rememberFocus(s.kind, key) },
                 )
             }
         }

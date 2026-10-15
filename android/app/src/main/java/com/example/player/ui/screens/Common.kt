@@ -105,18 +105,21 @@ fun TileCard(
     tile: Tile,
     favourite: Boolean,
     modifier: Modifier = Modifier,
+    focusModifier: Modifier = Modifier,
+    onFocused: () -> Unit = {},
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val isLive = tile.kind == Kind.LIVE
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         FocusBox(
-            modifier = Modifier
+            modifier = focusModifier
                 .fillMaxWidth()
                 .aspectRatio(if (isLive) 16f / 11f else 2f / 3f),
             shape = RoundedCornerShape(12.dp),
             background = if (isLive) AppColors.glass else AppColors.surfaceRaised,
             focusScale = 1.07f,
+            onFocused = onFocused,
             onLongClick = onLongClick,
             onClick = onClick,
         ) { _ ->
