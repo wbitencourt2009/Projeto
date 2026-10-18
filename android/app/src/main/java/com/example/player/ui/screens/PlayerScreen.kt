@@ -152,7 +152,11 @@ fun PlayerScreen(
         player.addListener(listener)
         onDispose {
             player.removeListener(listener)
-            player.release()
+            // Releasing blocks the main thread for a moment on slow sticks; stop now so the
+            // sound ends at once, and release after the previous screen has been drawn.
+            player.playWhenReady = false
+            player.stop()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ player.release() }, 300)
         }
     }
 

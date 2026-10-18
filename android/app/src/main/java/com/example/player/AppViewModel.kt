@@ -103,7 +103,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun push(to: Screen) {
         stack = stack + to
+        lastNavigationAt = android.os.SystemClock.uptimeMillis()
     }
+
+    /** A second Back pressed while the previous screen is still closing must not skip a screen. */
+    private var lastNavigationAt = 0L
 
     /** Replaces the top screen, e.g. to remember the selected category. */
     fun replaceTop(to: Screen) {
@@ -113,6 +117,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Returns false when there is nothing to go back to (the app should close). */
     fun back(): Boolean {
         if (stack.size <= 1) return false
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastNavigationAt < BACK_DEBOUNCE_MS) return true
+        lastNavigationAt = now
         // Leaving a list for good (not the player on top of it): forget its focus.
         (stack.last() as? Screen.Browse)?.let { lastFocused.remove(it.kind) }
         stack = stack.dropLast(1)
@@ -332,3 +339,5 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         push(Screen.Player(items, index, live = false))
     }
 }
+
+private const val BACK_DEBOUNCE_MS = 700L

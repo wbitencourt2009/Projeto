@@ -12,6 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -62,7 +64,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(vm: AppViewModel, onExit: () -> Unit) {
     val content = vm.content
-    BackHandler { if (!vm.back()) onExit() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var lastExitPress by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    BackHandler {
+        if (vm.back()) return@BackHandler
+        // On the first screen: Back twice to leave, so an extra press never closes the app by accident.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastExitPress < 2_000) {
+            onExit()
+        } else {
+            lastExitPress = now
+            android.widget.Toast.makeText(context, "Aperte Voltar de novo para sair", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     when (val s = vm.screen) {
         Screen.Splash -> LoadingScreen("Abrindo")
