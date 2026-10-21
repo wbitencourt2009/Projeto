@@ -137,9 +137,10 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
         )
         Screen.Search -> {
             if (content != null) {
-                val all = remember(content) { Kind.entries.associateWith { vm.tiles(it) } }
                 SearchScreen(
-                    all = all,
+                    query = vm.searchQuery,
+                    onQueryChange = { vm.searchQuery = it },
+                    search = { q -> vm.search(q) },
                     favourites = vm.favourites,
                     onOpen = vm::open,
                     onToggleFavourite = vm::toggleFavourite,

@@ -96,8 +96,10 @@ fun formatDate(ms: Long): String = SimpleDateFormat("EEE, d 'de' MMMM", ptBR).fo
 
 fun formatCount(n: Int): String = String.format(ptBR, "%,d", n)
 
+private val ACCENTS = Regex("\\p{Mn}+")
+
 fun normalise(s: String): String =
-    Normalizer.normalize(s.lowercase(ptBR), Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+    Normalizer.normalize(s.lowercase(ptBR), Normalizer.Form.NFD).replace(ACCENTS, "")
 
 /** Poster (movies, series) or logo card (channels) with its title underneath. */
 @Composable

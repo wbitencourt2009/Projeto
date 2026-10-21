@@ -20,7 +20,10 @@ import com.example.player.data.ProfileStore
 import com.example.player.data.Series
 import com.example.player.data.SeriesDetail
 import com.example.player.data.Tile
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -157,6 +160,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             profile = null
             content = null
+            searchIndex = null
+            searchQuery = ""
             favourites = emptyList()
             recent = emptyList()
             reset(Screen.Login)
@@ -174,6 +179,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             profile = p
             content = fetched
+            searchIndex = null
             epgCache.clear()
             loginError = null
             reset(Screen.Home)
@@ -215,6 +221,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val prefix = kind.name.lowercase() + ":"
         recent = recent.filterNot { it.startsWith(prefix) }
         library.saveRecent(recent)
+    }
+
+    // ---- search ----
+
+    /** Text typed in the global search, kept when coming back from the player. */
+    var searchQuery by mutableStateOf("")
+
+    private class SearchIndex(val byKind: Map<Kind, Pair<Array<String>, List<Tile>>>)
+    private var searchIndex: Deferred<SearchIndex>? = null
+
+    /** Normalised names are computed once per list, in the background (100k+ titles on big providers). */
+    private fun searchIndex(): Deferred<SearchIndex> = searchIndex ?: viewModelScope.async(Dispatchers.Default) {
+        SearchIndex(Kind.entries.associateWith { kind ->
+            val list = tiles(kind)
+            Array(list.size) { com.example.player.ui.screens.normalise(list[it].title) } to list
+        })
+    }.also { searchIndex = it }
+
+    data class SearchResult(val kind: Kind, val total: Int, val items: List<Tile>)
+
+    /** Runs off the main thread; at most [limit] items per kind are returned. */
+    suspend fun search(query: String, limit: Int = 40): List<SearchResult> = withContext(Dispatchers.Default) {
+        val q = com.example.player.ui.screens.normalise(query.trim())
+        if (q.length < 2) return@withContext emptyList()
+        val index = searchIndex().await()
+        listOf(Kind.LIVE, Kind.MOVIE, Kind.SERIES).mapNotNull { kind ->
+            val (names, list) = index.byKind[kind] ?: return@mapNotNull null
+            var total = 0
+            val found = ArrayList<Tile>(limit)
+            for (i in names.indices) {
+                if (i % 2048 == 0) ensureActive()
+                if (names[i].contains(q)) {
+                    total++
+                    if (found.size < limit) found += list[i]
+                }
+            }
+            if (total == 0) null else SearchResult(kind, total, found)
+        }
     }
 
     // ---- EPG ----

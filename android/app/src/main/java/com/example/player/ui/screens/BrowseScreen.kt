@@ -247,7 +247,7 @@ fun BrowseScreen(
                         verticalArrangement = Arrangement.spacedBy(18.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        itemsIndexed(visible, key = { _, t -> t.key }) { _, t ->
+                        itemsIndexed(visible, key = { i, t -> "$i|${t.key}" }) { _, t ->
                             TileCard(
                                 tile = t,
                                 favourite = t.key in favSet,
