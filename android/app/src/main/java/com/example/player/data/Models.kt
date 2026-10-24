@@ -74,11 +74,31 @@ data class Episode(
     val duration: String? = null,
 )
 
+/** Synopsis and extras shown on the movie and series pages. Every field is optional. */
+data class MediaInfo(
+    val plot: String? = null,
+    val genre: String? = null,
+    val cast: String? = null,
+    val director: String? = null,
+    val releaseDate: String? = null,
+    val duration: String? = null,
+    val rating: String? = null,
+    val backdrop: String? = null,
+    /** YouTube video id or url, from the provider's youtube_trailer field. */
+    val trailer: String? = null,
+)
+
 data class SeriesDetail(
     val series: Series,
     val plot: String?,
     val backdrop: String?,
     val episodes: Map<Int, List<Episode>>,
+    val info: MediaInfo = MediaInfo(),
+)
+
+data class MovieDetail(
+    val movie: Movie,
+    val info: MediaInfo,
 )
 
 @Serializable

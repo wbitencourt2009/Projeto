@@ -77,7 +77,39 @@ class IptvClient {
             }
             .sortedWith(compareBy({ it.season }, { it.number }))
             .groupBy { it.season }
-        SeriesDetail(series, info?.str("plot") ?: series.plot, backdrop?.takeIf { it.startsWith("http") } ?: series.cover, episodes)
+        val extras = mediaInfo(info, series.plot, series.cover)
+        SeriesDetail(series, extras.plot, backdrop?.takeIf { it.startsWith("http") } ?: extras.backdrop ?: series.cover, episodes, extras)
+    }
+
+    /** Synopsis, cast, trailer… of a movie (Xtream get_vod_info). M3U lists have none. */
+    suspend fun movieDetail(profile: Profile, movie: Movie): MovieDetail = withContext(Dispatchers.IO) {
+        if (!profile.isXtream) return@withContext MovieDetail(movie, MediaInfo(backdrop = movie.poster, rating = movie.rating))
+        val root = getJson("${base(profile)}&action=get_vod_info&vod_id=${movie.id}") as? JsonObject
+        val info = root?.get("info") as? JsonObject
+        MovieDetail(movie, mediaInfo(info, null, movie.poster).let { if (it.rating == null) it.copy(rating = movie.rating) else it })
+    }
+
+    /** Providers use several names for the same fields; take whichever is filled. */
+    private fun mediaInfo(info: JsonObject?, fallbackPlot: String?, fallbackImage: String?): MediaInfo {
+        if (info == null) return MediaInfo(plot = fallbackPlot, backdrop = fallbackImage)
+        fun first(vararg keys: String): String? = keys.firstNotNullOfOrNull { k ->
+            info.str(k)?.trim()?.takeIf { it.isNotEmpty() && it != "0" && !it.equals("null", true) }
+        }
+        val backdrop = (info["backdrop_path"] as? JsonArray)?.firstOrNull()
+            ?.let { (it as? JsonPrimitive)?.contentOrNull }?.takeIf { it.startsWith("http") }
+            ?: first("backdrop", "cover_big", "movie_image", "cover")?.takeIf { it.startsWith("http") }
+        val minutes = first("episode_run_time")?.toIntOrNull()
+        return MediaInfo(
+            plot = first("plot", "description") ?: fallbackPlot,
+            genre = first("genre"),
+            cast = first("cast", "actors"),
+            director = first("director"),
+            releaseDate = first("releasedate", "releaseDate", "release_date", "year"),
+            duration = first("duration") ?: minutes?.let { "$it min" },
+            rating = first("rating"),
+            backdrop = backdrop ?: fallbackImage,
+            trailer = first("youtube_trailer", "trailer"),
+        )
     }
 
     /** Full guide of one channel (all days the server keeps). Xtream only. */

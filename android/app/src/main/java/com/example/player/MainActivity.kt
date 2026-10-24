@@ -25,6 +25,7 @@ import com.example.player.ui.screens.GuideScreen
 import com.example.player.ui.screens.HomeScreen
 import com.example.player.ui.screens.LoadingScreen
 import com.example.player.ui.screens.LoginScreen
+import com.example.player.ui.screens.MovieScreen
 import com.example.player.ui.screens.OfflineScreen
 import com.example.player.ui.screens.PlayerScreen
 import com.example.player.ui.screens.SearchScreen
@@ -134,6 +135,13 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             onToggleFavourite = { vm.toggleFavourite(Tile.keyOf(Kind.SERIES, s.series.id)) },
             onRetry = { vm.retrySeries(s.series) },
             onPlay = { episodes, i -> vm.playEpisodes(episodes, i, s.series) },
+        )
+        is Screen.MovieInfo -> MovieScreen(
+            movie = s.movie,
+            detail = vm.movieDetail,
+            favourite = vm.isFavourite(Tile.keyOf(Kind.MOVIE, s.movie.id)),
+            onPlay = { vm.playMovie(s.movie) },
+            onToggleFavourite = { vm.toggleFavourite(Tile.keyOf(Kind.MOVIE, s.movie.id)) },
         )
         Screen.Search -> {
             if (content != null) {

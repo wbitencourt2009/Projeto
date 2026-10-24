@@ -62,6 +62,11 @@ fun SeriesScreen(
     var season by remember(current) { mutableStateOf(seasons.firstOrNull()) }
     val episodes = season?.let { current?.episodes?.get(it) }.orEmpty()
     val firstEpisode = remember { FocusRequester() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showSynopsis by remember { mutableStateOf(false) }
+    if (showSynopsis) {
+        SynopsisDialog(series.name, current?.info ?: com.example.player.data.MediaInfo(plot = series.plot)) { showSynopsis = false }
+    }
     LaunchedEffect(current) { if (current != null) runCatching { firstEpisode.requestFocus() } }
 
     Box(Modifier.fillMaxSize().background(AppColors.bg)) {
@@ -95,10 +100,13 @@ fun SeriesScreen(
                     }
                 }
                 PillButton(if (favourite) "♥  Favorito" else "♡  Favoritar", primary = favourite, onClick = onToggleFavourite)
+                PillButton("📖  Sinopse", onClick = { showSynopsis = true })
+                val trailer = current?.info?.trailer
+                if (trailer != null) PillButton("🎬  Trailer", onClick = { openTrailer(context, trailer) })
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Text(series.name, style = AppType.headline, color = AppColors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                series.rating?.let { Text("★ $it", style = AppType.caption, color = AppColors.warning) }
+                if (current != null) MetaLine(current.info) else series.rating?.let { Text("★ $it", style = AppType.caption, color = AppColors.warning) }
                 val plot = current?.plot ?: series.plot
                 if (!plot.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))

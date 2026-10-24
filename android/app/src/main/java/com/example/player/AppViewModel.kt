@@ -11,6 +11,8 @@ import com.example.player.data.Content
 import com.example.player.data.Episode
 import com.example.player.data.IptvClient
 import com.example.player.data.Kind
+import com.example.player.data.Movie
+import com.example.player.data.MovieDetail
 import com.example.player.data.Library
 import com.example.player.data.LoginException
 import com.example.player.data.PlayItem
@@ -36,6 +38,7 @@ sealed interface Screen {
     data object Home : Screen
     data class Browse(val kind: Kind, val categoryId: String = BrowseIds.ALL) : Screen
     data class SeriesInfo(val series: Series) : Screen
+    data class MovieInfo(val movie: Movie) : Screen
     data object Search : Screen
     data class Guide(val categoryId: String = BrowseIds.ALL, val channelId: String? = null) : Screen
     data class Player(val items: List<PlayItem>, val index: Int, val live: Boolean) : Screen
@@ -73,6 +76,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var seriesDetail by mutableStateOf<SeriesDetail?>(null)
         private set
     var seriesError by mutableStateOf<String?>(null)
+        private set
+    var movieDetail by mutableStateOf<MovieDetail?>(null)
         private set
 
     init {
@@ -334,8 +339,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             Kind.MOVIE -> {
                 val movie = c.movies.firstOrNull { it.id == tile.id } ?: return
-                markWatched(tile.key)
-                push(Screen.Player(listOf(PlayItem(tile.key, movie.name, image = movie.poster, url = client.movieUrl(p, movie))), 0, live = false))
+                loadMovie(movie)
+                push(Screen.MovieInfo(movie))
             }
             Kind.SERIES -> {
                 val series = c.series.firstOrNull { it.id == tile.id } ?: return
@@ -368,6 +373,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun retrySeries(series: Series) = loadSeries(series)
+
+    private fun loadMovie(movie: Movie) {
+        val p = profile ?: return
+        movieDetail = null
+        viewModelScope.launch {
+            // Details are optional: on failure the page still shows the poster and Watch.
+            movieDetail = runCatching { client.movieDetail(p, movie) }
+                .getOrElse { MovieDetail(movie, com.example.player.data.MediaInfo(backdrop = movie.poster, rating = movie.rating)) }
+        }
+    }
+
+    fun playMovie(movie: Movie) {
+        val p = profile ?: return
+        val key = Tile.keyOf(Kind.MOVIE, movie.id)
+        markWatched(key)
+        push(Screen.Player(listOf(PlayItem(key, movie.name, image = movie.poster, url = client.movieUrl(p, movie))), 0, live = false))
+    }
 
     fun playEpisodes(episodes: List<Episode>, index: Int, series: Series) {
         val p = profile ?: return
