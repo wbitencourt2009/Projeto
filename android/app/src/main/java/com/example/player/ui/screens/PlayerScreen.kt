@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -47,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -110,6 +112,7 @@ fun PlayerScreen(
             .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(http))
             .setLoadControl(loadControl)
             .build()
+            .apply { videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT }
     }
 
     DisposableEffect(player) {
@@ -215,6 +218,59 @@ fun PlayerScreen(
 
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
+    // Screen format (fit / stretch / zoom), remembered between videos.
+    val prefs = remember { context.getSharedPreferences("player", android.content.Context.MODE_PRIVATE) }
+    var aspect by remember { mutableIntStateOf(prefs.getInt("aspect", 0).coerceIn(0, ASPECT_MODES.size - 1)) }
+    var aspectLabelVisible by remember { mutableStateOf(false) }
+    fun cycleAspect() {
+        aspect = (aspect + 1) % ASPECT_MODES.size
+        prefs.edit().putInt("aspect", aspect).apply()
+        aspectLabelVisible = true
+    }
+    LaunchedEffect(aspect, aspectLabelVisible) {
+        if (aspectLabelVisible) {
+            delay(2_500)
+            aspectLabelVisible = false
+        }
+    }
+
+    // Movie / episode controls: our own, driven by the remote (the stock controller
+    // can't receive D-pad focus inside Compose on Android TV sticks).
+    var position by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var paused by remember { mutableStateOf(false) }
+    var lastInteraction by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(overlay, index) {
+        while (!live && overlay) {
+            position = player.currentPosition
+            duration = player.duration.takeIf { it > 0 } ?: 0L
+            paused = !player.playWhenReady
+            delay(500)
+        }
+    }
+    LaunchedEffect(overlay, lastInteraction, paused) {
+        if (!live && overlay && !paused) {
+            delay(5_000)
+            overlay = false
+        }
+    }
+    fun showControls() {
+        overlay = true
+        lastInteraction = System.nanoTime()
+    }
+    fun togglePause() {
+        player.playWhenReady = !player.playWhenReady
+        paused = !player.playWhenReady
+        showControls()
+    }
+    fun seekBy(ms: Long) {
+        val end = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        val target = (player.currentPosition + ms).coerceIn(0L, end)
+        player.seekTo(target)
+        position = target
+        showControls()
+    }
+
     fun zap(delta: Int) {
         if (items.isEmpty()) return
         retries = 0
@@ -222,26 +278,45 @@ fun PlayerScreen(
         index = (index + delta + items.size) % items.size
     }
 
-    val keys = if (live) {
-        Modifier
-            .focusRequester(focus)
-            .focusable()
-            .onKeyEvent { e ->
-                if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+    val keys = Modifier
+        .focusRequester(focus)
+        .focusable()
+        .onKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+            val held = e.nativeKeyEvent.repeatCount > 0
+            val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+            if (error != null && ok) {
+                retries = 0
+                attempt++
+                return@onKeyEvent true
+            }
+            if (live) {
                 when (e.key) {
                     Key.DirectionUp, Key.ChannelUp, Key.PageUp -> { zap(-1); true }
                     Key.DirectionDown, Key.ChannelDown, Key.PageDown -> { zap(1); true }
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        if (error != null) { retries = 0; attempt++ } else overlay = !overlay
-                        true
-                    }
+                    Key.DirectionLeft, Key.DirectionRight, Key.Menu -> { cycleAspect(); true }
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { overlay = !overlay; true }
+                    else -> false
+                }
+            } else {
+                when (e.key) {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> { togglePause(); true }
+                    Key.MediaPlay -> { player.playWhenReady = true; paused = false; showControls(); true }
+                    Key.MediaPause -> { player.playWhenReady = false; paused = true; showControls(); true }
+                    // Hold the key to jump faster.
+                    Key.DirectionLeft, Key.MediaRewind -> { seekBy(if (held) -30_000L else -10_000L); true }
+                    Key.DirectionRight, Key.MediaFastForward -> { seekBy(if (held) 30_000L else 10_000L); true }
+                    Key.DirectionUp, Key.Menu -> { cycleAspect(); showControls(); true }
+                    Key.DirectionDown -> { showControls(); true }
                     else -> false
                 }
             }
-            .pointerInput(Unit) { detectTapGestures(onTap = { overlay = !overlay }) }
-    } else {
-        Modifier
-    }
+        }
+        .pointerInput(live) {
+            detectTapGestures(onTap = {
+                if (live) overlay = !overlay else if (overlay) togglePause() else showControls()
+            })
+        }
 
     Box(
         Modifier
@@ -252,19 +327,12 @@ fun PlayerScreen(
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    useController = !live
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    useController = false
                     keepScreenOn = true
-                    setShowNextButton(!live)
-                    setShowPreviousButton(!live)
                     this.player = player
-                    if (!live) {
-                        isFocusable = true
-                        isFocusableInTouchMode = true
-                        post { requestFocus() }
-                    }
                 }
             },
+            update = { view -> view.resizeMode = ASPECT_MODES[aspect].second },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -302,7 +370,7 @@ fun PlayerScreen(
             ) {
                 Text(msg, style = AppType.title, color = AppColors.text)
                 Text(
-                    if (live) "OK tenta de novo · ▲ ▼ trocam de canal · Voltar sai" else "Voltar para sair",
+                    if (live) "OK tenta de novo · ▲ ▼ trocam de canal · Voltar sai" else "OK tenta de novo · Voltar sai",
                     style = AppType.body,
                     color = AppColors.textMuted,
                 )
@@ -320,29 +388,117 @@ fun PlayerScreen(
                 if (item != null) LiveInfoBar(item, index, items.size, programmes, onPrev = { zap(-1) }, onNext = { zap(1) })
             }
         } else if (item != null) {
+            if (paused && error == null && !buffering) {
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(110.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(AppColors.glass.copy(alpha = 0.8f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("❚❚", style = AppType.headline, color = AppColors.text)
+                }
+            }
             AnimatedVisibility(
                 visible = overlay,
                 enter = fadeIn(),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopStart),
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(AppColors.bg.copy(alpha = 0.85f), Color.Transparent)))
-                        .padding(horizontal = 40.dp, vertical = 24.dp),
-                ) {
-                    item.subtitle?.let { Text(it, style = AppType.caption, color = AppColors.accent) }
-                    Text(item.title, style = AppType.title, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                VodControls(
+                    item = item,
+                    position = position,
+                    duration = duration,
+                    paused = paused,
+                    aspectName = ASPECT_MODES[aspect].first,
+                    onBack = { seekBy(-10_000L) },
+                    onPlayPause = { togglePause() },
+                    onForward = { seekBy(10_000L) },
+                )
             }
-            LaunchedEffect(index) {
-                delay(5_000)
-                overlay = false
-            }
+        }
+
+        AnimatedVisibility(
+            visible = aspectLabelVisible,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
+        ) {
+            Text(
+                "Tela: " + ASPECT_MODES[aspect].first,
+                style = AppType.label,
+                color = AppColors.text,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(AppColors.glass.copy(alpha = 0.9f))
+                    .padding(horizontal = 22.dp, vertical = 10.dp),
+            )
         }
     }
 }
+
+@Composable
+private fun VodControls(
+    item: PlayItem,
+    position: Long,
+    duration: Long,
+    paused: Boolean,
+    aspectName: String,
+    onBack: () -> Unit,
+    onPlayPause: () -> Unit,
+    onForward: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Brush.verticalGradient(listOf(Color.Transparent, AppColors.bg.copy(alpha = 0.95f))))
+            .padding(horizontal = 40.dp, vertical = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item.subtitle?.let { Text(it, style = AppType.caption, color = AppColors.accent) }
+        Text(item.title, style = AppType.headline, color = AppColors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(clockOf(position), style = AppType.label, color = AppColors.text)
+            val pct = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(AppColors.border),
+            ) {
+                Box(Modifier.fillMaxWidth(pct).height(6.dp).background(AppColors.accent))
+            }
+            Text(if (duration > 0) clockOf(duration) else "--:--", style = AppType.label, color = AppColors.textMuted)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PillButton("⏪ 10s", onClick = onBack)
+            PillButton(if (paused) "▶  Continuar" else "❚❚  Pausar", primary = true, onClick = onPlayPause)
+            PillButton("10s ⏩", onClick = onForward)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "OK pausar · ◀ ▶ 10 s (segure p/ 30 s) · ▲ tela: $aspectName",
+                style = AppType.caption,
+                color = AppColors.textMuted,
+            )
+        }
+    }
+}
+
+private fun clockOf(ms: Long): String {
+    val total = ms / 1000
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+private val ASPECT_MODES = listOf(
+    "Ajustar à tela" to AspectRatioFrameLayout.RESIZE_MODE_FIT,
+    "Esticar" to AspectRatioFrameLayout.RESIZE_MODE_FILL,
+    "Zoom" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+)
 
 @Composable
 private fun LiveInfoBar(
