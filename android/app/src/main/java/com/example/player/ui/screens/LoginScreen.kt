@@ -118,7 +118,7 @@ fun LoginScreen(error: String?, initial: Profile? = null, onLogin: (Profile) -> 
 }
 
 @Composable
-private fun Field(
+internal fun Field(
     label: String,
     value: String,
     keyboard: KeyboardType = KeyboardType.Text,

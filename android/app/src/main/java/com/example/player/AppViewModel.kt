@@ -39,6 +39,7 @@ sealed interface Screen {
     data class Browse(val kind: Kind, val categoryId: String = BrowseIds.ALL) : Screen
     data class SeriesInfo(val series: Series) : Screen
     data class MovieInfo(val movie: Movie) : Screen
+    data object Settings : Screen
     data object Search : Screen
     data class Guide(val categoryId: String = BrowseIds.ALL, val channelId: String? = null) : Screen
     data class Player(val items: List<PlayItem>, val index: Int, val live: Boolean) : Screen
@@ -54,6 +55,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val store = ProfileStore(app)
     private val library = Library(app)
     val client = IptvClient()
+    private val metadata = com.example.player.data.MetadataClient()
+    private val settings = app.getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
+
+    /** User's own free TMDB API key (optional): better synopsis, trailer and cast. */
+    var tmdbKey by mutableStateOf(settings.getString("tmdb_key", "").orEmpty())
+        private set
+
+    fun saveTmdbKey(key: String) {
+        tmdbKey = key.trim()
+        settings.edit().putString("tmdb_key", tmdbKey).apply()
+    }
 
     private var stack by mutableStateOf<List<Screen>>(listOf(Screen.Splash))
     val screen: Screen get() = stack.last()
@@ -363,7 +375,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         seriesError = null
         viewModelScope.launch {
             try {
-                seriesDetail = client.seriesDetail(p, series)
+                val fromProvider = client.seriesDetail(p, series)
+                seriesDetail = fromProvider
+                val info = fromProvider.info
+                if (info.plot.isNullOrBlank() || info.trailer == null || info.cast == null || tmdbKey.isNotBlank()) {
+                    val enriched = runCatching { metadata.enrich(series.name, isSeries = true, base = info, tmdbKey = tmdbKey) }.getOrNull()
+                    if (enriched != null && seriesDetail?.series?.id == series.id) {
+                        seriesDetail = fromProvider.copy(
+                            info = enriched,
+                            plot = fromProvider.plot?.takeIf { it.isNotBlank() } ?: enriched.plot,
+                            backdrop = fromProvider.backdrop ?: enriched.backdrop,
+                        )
+                    }
+                }
             } catch (e: LoginException) {
                 seriesError = e.message
             } catch (e: Exception) {
@@ -379,8 +403,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         movieDetail = null
         viewModelScope.launch {
             // Details are optional: on failure the page still shows the poster and Watch.
-            movieDetail = runCatching { client.movieDetail(p, movie) }
+            val fromProvider = runCatching { client.movieDetail(p, movie) }
                 .getOrElse { MovieDetail(movie, com.example.player.data.MediaInfo(backdrop = movie.poster, rating = movie.rating)) }
+            movieDetail = fromProvider
+            // Fill what the provider left empty (TMDB with the user's key, else Wikipedia).
+            val info = fromProvider.info
+            if (info.plot.isNullOrBlank() || info.trailer == null || info.cast == null || tmdbKey.isNotBlank()) {
+                val enriched = runCatching { metadata.enrich(movie.name, isSeries = false, base = info, tmdbKey = tmdbKey) }.getOrNull()
+                if (enriched != null && movieDetail?.movie?.id == movie.id) movieDetail = fromProvider.copy(info = enriched)
+            }
         }
     }
 

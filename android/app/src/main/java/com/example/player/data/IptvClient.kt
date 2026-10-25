@@ -109,6 +109,7 @@ class IptvClient {
             rating = first("rating"),
             backdrop = backdrop ?: fallbackImage,
             trailer = first("youtube_trailer", "trailer"),
+            tmdbId = first("tmdb_id", "tmdb")?.takeIf { it.all(Char::isDigit) },
         )
     }
 

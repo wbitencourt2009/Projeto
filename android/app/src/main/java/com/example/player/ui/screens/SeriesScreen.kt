@@ -102,7 +102,9 @@ fun SeriesScreen(
                 PillButton(if (favourite) "♥  Favorito" else "♡  Favoritar", primary = favourite, onClick = onToggleFavourite)
                 PillButton("📖  Sinopse", onClick = { showSynopsis = true })
                 val trailer = current?.info?.trailer
-                if (trailer != null) PillButton("🎬  Trailer", onClick = { openTrailer(context, trailer) })
+                PillButton("🎬  Trailer", onClick = {
+                    if (trailer != null) openTrailer(context, trailer) else searchTrailer(context, series.name)
+                })
             }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Text(series.name, style = AppType.headline, color = AppColors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)

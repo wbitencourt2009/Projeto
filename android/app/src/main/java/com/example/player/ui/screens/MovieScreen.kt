@@ -103,7 +103,9 @@ fun MovieScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     PillButton("▶  Assistir", primary = true, modifier = Modifier.focusRequester(watch), onClick = onPlay)
                     val trailer = info?.trailer
-                    if (trailer != null) PillButton("🎬  Trailer", onClick = { openTrailer(context, trailer) })
+                    PillButton("🎬  Trailer", onClick = {
+                        if (trailer != null) openTrailer(context, trailer) else searchTrailer(context, movie.name)
+                    })
                     PillButton(if (favourite) "♥  Favorito" else "♡  Favoritar", onClick = onToggleFavourite)
                 }
                 if (current == null) {
@@ -142,6 +144,7 @@ fun Synopsis(info: MediaInfo?) {
         )
         info?.director?.let { Credit("Direção", it) }
         info?.cast?.let { Credit("Elenco", it) }
+        info?.source?.let { Text("Sinopse: $it", style = AppType.caption, color = AppColors.textFaint) }
         Spacer(Modifier.height(8.dp))
     }
 }
@@ -214,4 +217,24 @@ fun SynopsisDialog(title: String, info: MediaInfo, onDismiss: () -> Unit) {
         kotlinx.coroutines.delay(100)
         runCatching { close.requestFocus() }
     }
+}
+
+/** No trailer from the provider or TMDB: open a YouTube search for "<title> <year> trailer". */
+fun searchTrailer(context: Context, title: String) {
+    val (name, year) = com.example.player.data.MetadataClient.cleanTitle(title)
+    val query = listOfNotNull(name, year, "trailer").joinToString(" ")
+    val intents = listOf(
+        Intent(Intent.ACTION_SEARCH).setPackage("com.google.android.youtube.tv").putExtra(android.app.SearchManager.QUERY, query),
+        Intent(Intent.ACTION_SEARCH).setPackage("com.google.android.youtube").putExtra(android.app.SearchManager.QUERY, query),
+        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query))),
+    )
+    for (intent in intents) {
+        try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (e: ActivityNotFoundException) {
+            // try the next way to open it
+        }
+    }
+    Toast.makeText(context, "Instale o app do YouTube para ver o trailer.", Toast.LENGTH_LONG).show()
 }

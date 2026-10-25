@@ -60,6 +60,7 @@ fun HomeScreen(
     onFavourites: () -> Unit,
     onRefresh: () -> Unit,
     onLogout: () -> Unit,
+    onSettings: () -> Unit = {},
     restoreKind: Kind? = null,
 ) {
     val now = rememberNow()
@@ -146,6 +147,7 @@ fun HomeScreen(
                     SideButton("☰  Guia de TV", onGuide)
                     SideButton("♥  Favoritos", onFavourites)
                     SideButton("⟳  Atualizar lista", onRefresh)
+                    SideButton("⚙  Ajustes", onSettings)
                     SideButton("⏻  Desconectar", onClick = { confirmLogout = true })
                 }
             }

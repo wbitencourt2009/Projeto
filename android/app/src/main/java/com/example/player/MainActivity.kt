@@ -30,6 +30,7 @@ import com.example.player.ui.screens.OfflineScreen
 import com.example.player.ui.screens.PlayerScreen
 import com.example.player.ui.screens.SearchScreen
 import com.example.player.ui.screens.SeriesScreen
+import com.example.player.ui.screens.SettingsScreen
 import com.example.player.ui.theme.AppColors
 
 class MainActivity : ComponentActivity() {
@@ -101,6 +102,7 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
                     onFavourites = { vm.push(Screen.Browse(Kind.LIVE, BrowseIds.FAVOURITES)) },
                     onRefresh = vm::refresh,
                     onLogout = vm::logout,
+                    onSettings = { vm.push(Screen.Settings) },
                     restoreKind = vm.lastHubKind,
                 )
             }
@@ -143,6 +145,7 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             onPlay = { vm.playMovie(s.movie) },
             onToggleFavourite = { vm.toggleFavourite(Tile.keyOf(Kind.MOVIE, s.movie.id)) },
         )
+        Screen.Settings -> SettingsScreen(tmdbKey = vm.tmdbKey, onSave = vm::saveTmdbKey)
         Screen.Search -> {
             if (content != null) {
                 SearchScreen(

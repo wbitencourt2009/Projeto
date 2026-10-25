@@ -86,6 +86,10 @@ data class MediaInfo(
     val backdrop: String? = null,
     /** YouTube video id or url, from the provider's youtube_trailer field. */
     val trailer: String? = null,
+    /** TMDB id when the provider sends it; makes the TMDB lookup exact. */
+    val tmdbId: String? = null,
+    /** Where the synopsis came from when it was not the provider ("TMDB", "Wikipédia"). */
+    val source: String? = null,
 )
 
 data class SeriesDetail(
