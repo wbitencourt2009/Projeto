@@ -48,6 +48,7 @@ class MetadataClient {
         rating = have.rating ?: found.rating,
         backdrop = have.backdrop ?: found.backdrop,
         trailer = have.trailer ?: found.trailer,
+        tmdbId = have.tmdbId ?: found.tmdbId,
         source = if (have.plot.isNullOrBlank() && !found.plot.isNullOrBlank()) found.source else have.source,
     )
 
@@ -100,6 +101,7 @@ class MetadataClient {
             rating = rating,
             backdrop = d.str("backdrop_path")?.let { "https://image.tmdb.org/t/p/w1280$it" },
             trailer = trailer,
+            tmdbId = id,
             source = "TMDB",
         )
     }

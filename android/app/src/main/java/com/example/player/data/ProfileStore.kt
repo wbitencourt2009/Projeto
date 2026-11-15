@@ -46,8 +46,25 @@ class ProfileStore(context: Context) {
         editor.commit() // synchronous: the login must survive the app being closed right away
     }
 
+    /** Small secrets for optional services (e.g. the subtitles account), encrypted like the login. */
+    fun loadSecret(name: String): String =
+        prefs.getString("secret_enc_$name", null)?.let { runCatching { decrypt(it) }.getOrNull() }
+            ?: prefs.getString("secret_plain_$name", null).orEmpty()
+
+    fun saveSecret(name: String, value: String) {
+        val encrypted = runCatching { encrypt(value) }.getOrNull()
+            ?.takeIf { runCatching { decrypt(it) == value }.getOrDefault(false) }
+        val editor = prefs.edit().remove("secret_enc_$name").remove("secret_plain_$name")
+        when {
+            value.isEmpty() -> Unit
+            encrypted != null -> editor.putString("secret_enc_$name", encrypted)
+            else -> editor.putString("secret_plain_$name", value)
+        }
+        editor.commit()
+    }
+
     fun clear() {
-        prefs.edit().clear().commit()
+        prefs.edit().remove(KEY_PROFILE).remove(KEY_PROFILE_PLAIN).commit() // keeps the subtitles account
         cacheFile.delete()
     }
 

@@ -53,6 +53,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -83,6 +86,7 @@ fun PlayerScreen(
     live: Boolean,
     onItemShown: (PlayItem) -> Unit,
     loadEpg: suspend (PlayItem) -> List<com.example.player.data.Programme> = { emptyList() },
+    subtitles: SubtitleActions? = null,
 ) {
     var programmes by remember { mutableStateOf<List<com.example.player.data.Programme>>(emptyList()) }
     val context = LocalContext.current
@@ -98,6 +102,18 @@ fun PlayerScreen(
     val focus = remember { FocusRequester() }
     val shown by rememberUpdatedState(onItemShown)
 
+    // Subtitles: on/off and text size remembered; a subtitle downloaded for this
+    // movie or episode is loaded again automatically.
+    val subPrefs = remember { context.getSharedPreferences("player", android.content.Context.MODE_PRIVATE) }
+    var subsOn by remember { mutableStateOf(subPrefs.getBoolean("subs_on", true)) }
+    var subSize by remember { mutableIntStateOf(subPrefs.getInt("sub_size", 1).coerceIn(0, SUB_SIZES.size - 1)) }
+    var textGroups by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
+    var showSubs by remember { mutableStateOf(false) }
+    val preparedIndex = remember { intArrayOf(-1) }
+    var downloadedSub by remember(index) {
+        mutableStateOf(if (live) null else items.getOrNull(index)?.let { subtitles?.saved?.invoke(it) })
+    }
+
     val player = remember {
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(USER_AGENT)
@@ -112,7 +128,13 @@ fun PlayerScreen(
             .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(http))
             .setLoadControl(loadControl)
             .build()
-            .apply { videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT }
+            .apply {
+                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                trackSelectionParameters = trackSelectionParameters.buildUpon()
+                    .setPreferredTextLanguages("pt-BR", "pt", "por")
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !context.getSharedPreferences("player", android.content.Context.MODE_PRIVATE).getBoolean("subs_on", true))
+                    .build()
+            }
     }
 
     DisposableEffect(player) {
@@ -125,6 +147,10 @@ fun PlayerScreen(
                     retryPending = false
                 }
                 if (state == Player.STATE_ENDED && !live && index < items.size - 1) index++
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -193,12 +219,13 @@ fun PlayerScreen(
     LaunchedEffect(index, attempt) {
         val it = items.getOrNull(index) ?: return@LaunchedEffect
         val url = if (retries % 2 == 1 && it.fallbackUrl != null) it.fallbackUrl else it.url
-        val media = MediaItem.Builder().setUri(url).apply {
-            if (url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
-        }.build()
+        val media = mediaItemOf(url, downloadedSub)
         error = null
         buffering = true
-        player.setMediaItem(media)
+        // A retry keeps the place in the movie.
+        val resumeAt = if (!live && preparedIndex[0] == index) player.currentPosition else 0L
+        preparedIndex[0] = index
+        if (resumeAt > 0) player.setMediaItem(media, resumeAt) else player.setMediaItem(media)
         player.prepare()
         player.playWhenReady = true
         overlay = true
@@ -271,6 +298,37 @@ fun PlayerScreen(
         showControls()
     }
 
+    fun setSubtitlesOn(on: Boolean) {
+        subsOn = on
+        subPrefs.edit().putBoolean("subs_on", on).apply()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !on)
+            .apply { if (!on) clearOverridesOfType(C.TRACK_TYPE_TEXT) }
+            .build()
+    }
+
+    fun selectTextTrack(group: Tracks.Group, track: Int) {
+        subsOn = true
+        subPrefs.edit().putBoolean("subs_on", true).apply()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track))
+            .build()
+    }
+
+    /** Reloads the current video with (or without) the downloaded subtitle, at the same position. */
+    fun reloadWithSubtitle(file: java.io.File?) {
+        val current = items.getOrNull(index) ?: return
+        downloadedSub = file
+        if (file != null) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
+        }
+        val pos = player.currentPosition
+        player.setMediaItem(mediaItemOf(current.url, file), pos)
+        player.prepare()
+        player.playWhenReady = true
+    }
+
     fun zap(delta: Int) {
         if (items.isEmpty()) return
         retries = 0
@@ -285,6 +343,10 @@ fun PlayerScreen(
             if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
             val held = e.nativeKeyEvent.repeatCount > 0
             val ok = e.key == Key.DirectionCenter || e.key == Key.Enter || e.key == Key.NumPadEnter
+            if (!live && e.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_CAPTIONS) {
+                showSubs = true
+                return@onKeyEvent true
+            }
             if (error != null && ok) {
                 retries = 0
                 attempt++
@@ -307,7 +369,7 @@ fun PlayerScreen(
                     Key.DirectionLeft, Key.MediaRewind -> { seekBy(if (held) -30_000L else -10_000L); true }
                     Key.DirectionRight, Key.MediaFastForward -> { seekBy(if (held) 30_000L else 10_000L); true }
                     Key.DirectionUp, Key.Menu -> { cycleAspect(); showControls(); true }
-                    Key.DirectionDown -> { showControls(); true }
+                    Key.DirectionDown -> { if (overlay) showSubs = true else showControls(); true }
                     else -> false
                 }
             }
@@ -332,7 +394,24 @@ fun PlayerScreen(
                     this.player = player
                 }
             },
-            update = { view -> view.resizeMode = ASPECT_MODES[aspect].second },
+            update = { view ->
+                view.resizeMode = ASPECT_MODES[aspect].second
+                view.subtitleView?.apply {
+                    setApplyEmbeddedStyles(false)
+                    setApplyEmbeddedFontSizes(false)
+                    setStyle(
+                        CaptionStyleCompat(
+                            android.graphics.Color.WHITE,
+                            0x66000000,
+                            android.graphics.Color.TRANSPARENT,
+                            CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                            android.graphics.Color.BLACK,
+                            null,
+                        ),
+                    )
+                    setFractionalTextSize(SUB_SIZES[subSize].second)
+                }
+            },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -415,8 +494,45 @@ fun PlayerScreen(
                     onBack = { seekBy(-10_000L) },
                     onPlayPause = { togglePause() },
                     onForward = { seekBy(10_000L) },
+                    subtitlesLabel = if (!subsOn) "Desligada" else currentSubtitleName(textGroups) ?: "Ligada",
+                    onSubtitles = { showSubs = true },
                 )
             }
+        }
+
+        if (showSubs && !live) {
+            val current = items.getOrNull(index)
+            val options = textGroups.flatMap { g ->
+                (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                    TextTrackOption(trackName(g.getTrackFormat(i)), g.isTrackSelected(i)) { selectTextTrack(g, i) }
+                }
+            }
+            SubtitleDialog(
+                enabled = subsOn,
+                tracks = options,
+                sizeName = SUB_SIZES[subSize].first,
+                hasDownloaded = downloadedSub != null,
+                canSearch = subtitles != null && current?.subtitleQuery != null,
+                onOff = { setSubtitlesOn(false) },
+                onCycleSize = {
+                    subSize = (subSize + 1) % SUB_SIZES.size
+                    subPrefs.edit().putInt("sub_size", subSize).apply()
+                },
+                onRemoveDownloaded = {
+                    if (current != null) subtitles?.forget?.invoke(current)
+                    reloadWithSubtitle(null)
+                },
+                search = { subtitles!!.search(current!!.subtitleQuery!!) },
+                pick = { result ->
+                    val file = subtitles!!.download(result, current!!)
+                    setSubtitlesOn(true)
+                    reloadWithSubtitle(file)
+                },
+                onDismiss = { showSubs = false },
+            )
+        }
+        LaunchedEffect(showSubs) {
+            if (!showSubs) runCatching { focus.requestFocus() }
         }
 
         AnimatedVisibility(
@@ -448,6 +564,8 @@ private fun VodControls(
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onForward: () -> Unit,
+    subtitlesLabel: String,
+    onSubtitles: () -> Unit,
 ) {
     Column(
         Modifier
@@ -476,9 +594,10 @@ private fun VodControls(
             PillButton("⏪ 10s", onClick = onBack)
             PillButton(if (paused) "▶  Continuar" else "❚❚  Pausar", primary = true, onClick = onPlayPause)
             PillButton("10s ⏩", onClick = onForward)
+            PillButton("CC  Legenda: $subtitlesLabel", onClick = onSubtitles)
             Spacer(Modifier.weight(1f))
             Text(
-                "OK pausar · ◀ ▶ 10 s (segure p/ 30 s) · ▲ tela: $aspectName",
+                "OK pausar · ◀ ▶ 10 s (segure p/ 30 s) · ▼ legendas · ▲ tela: $aspectName",
                 style = AppType.caption,
                 color = AppColors.textMuted,
             )
@@ -492,6 +611,53 @@ private fun clockOf(ms: Long): String {
     val m = (total % 3600) / 60
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+/** Callbacks the player uses to find and keep subtitles (see AppViewModel). */
+class SubtitleActions(
+    val search: suspend (com.example.player.data.SubtitleQuery) -> List<com.example.player.data.SubtitleResult>,
+    val download: suspend (com.example.player.data.SubtitleResult, PlayItem) -> java.io.File,
+    val saved: (PlayItem) -> java.io.File?,
+    val forget: (PlayItem) -> Unit,
+)
+
+private val SUB_SIZES = listOf(
+    "Pequeno" to 0.045f,
+    "Médio" to 0.0533f,
+    "Grande" to 0.068f,
+    "Muito grande" to 0.085f,
+)
+
+private const val DOWNLOADED_LABEL = "Português (baixada)"
+
+private fun mediaItemOf(url: String, subtitle: java.io.File?): MediaItem =
+    MediaItem.Builder().setUri(url).apply {
+        if (url.contains(".m3u8", ignoreCase = true)) setMimeType(MimeTypes.APPLICATION_M3U8)
+        if (subtitle != null) {
+            setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(subtitle))
+                        .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                        .setLanguage("pt-BR")
+                        .setLabel(DOWNLOADED_LABEL)
+                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                        .build(),
+                ),
+            )
+        }
+    }.build()
+
+/** "Português", "Inglês (SDH)"… from the track's label or language. */
+private fun trackName(format: androidx.media3.common.Format): String {
+    format.label?.takeIf { it.isNotBlank() }?.let { return it }
+    val lang = format.language?.takeIf { it.isNotBlank() && it != "und" } ?: return "Legenda sem nome"
+    val name = java.util.Locale.forLanguageTag(lang).getDisplayLanguage(java.util.Locale("pt", "BR"))
+    return name.ifBlank { lang }.replaceFirstChar { it.uppercase() }
+}
+
+private fun currentSubtitleName(groups: List<Tracks.Group>): String? {
+    for (g in groups) for (i in 0 until g.length) if (g.isTrackSelected(i)) return trackName(g.getTrackFormat(i))
+    return null
 }
 
 private val ASPECT_MODES = listOf(

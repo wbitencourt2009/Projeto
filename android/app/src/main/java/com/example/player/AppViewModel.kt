@@ -67,6 +67,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         settings.edit().putString("tmdb_key", tmdbKey).apply()
     }
 
+    // ---- subtitles (OpenSubtitles.com, user's own free key and optional account) ----
+
+    private val subtitles = com.example.player.data.SubtitleClient()
+    private val subtitleDir = java.io.File(app.filesDir, "subs")
+
+    var subtitleKey by mutableStateOf(settings.getString("os_key", "").orEmpty())
+        private set
+    var subtitleUser by mutableStateOf(settings.getString("os_user", "").orEmpty())
+        private set
+    var subtitlePasswordSaved by mutableStateOf(store.loadSecret("os_password").isNotEmpty())
+        private set
+
+    /** [password] null keeps the saved one. */
+    fun saveSubtitleAccount(key: String, user: String, password: String?) {
+        subtitleKey = key.trim()
+        subtitleUser = user.trim()
+        settings.edit().putString("os_key", subtitleKey).putString("os_user", subtitleUser).apply()
+        if (password != null) {
+            store.saveSecret("os_password", password)
+            subtitlePasswordSaved = password.isNotEmpty()
+        }
+    }
+
+    suspend fun searchSubtitles(query: com.example.player.data.SubtitleQuery) = subtitles.search(query, subtitleKey)
+
+    suspend fun downloadSubtitle(result: com.example.player.data.SubtitleResult, item: PlayItem): java.io.File {
+        val password = withContext(Dispatchers.IO) { store.loadSecret("os_password") }
+        return subtitles.download(result.fileId, subtitleKey, subtitleUser, password, subtitleDir, subtitleFileName(item))
+    }
+
+    /** A subtitle downloaded earlier for this movie or episode, loaded again automatically. */
+    fun savedSubtitle(item: PlayItem): java.io.File? =
+        java.io.File(subtitleDir, subtitleFileName(item)).takeIf { it.isFile && it.length() > 0 }
+
+    fun forgetSubtitle(item: PlayItem) {
+        java.io.File(subtitleDir, subtitleFileName(item)).delete()
+    }
+
+    private fun subtitleFileName(item: PlayItem) = item.key.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".srt"
+
     private var stack by mutableStateOf<List<Screen>>(listOf(Screen.Splash))
     val screen: Screen get() = stack.last()
 
@@ -358,7 +398,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val series = c.series.firstOrNull { it.id == tile.id } ?: return
                 markWatched(tile.key)
                 if (series.url != null) {
-                    push(Screen.Player(listOf(PlayItem(tile.key, series.name, image = series.cover, url = series.url)), 0, live = false))
+                    push(Screen.Player(listOf(PlayItem(tile.key, series.name, image = series.cover, url = series.url, subtitleQuery = com.example.player.data.SubtitleQuery(series.name))), 0, live = false))
                 } else {
                     loadSeries(series)
                     push(Screen.SeriesInfo(series))
@@ -419,7 +459,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val p = profile ?: return
         val key = Tile.keyOf(Kind.MOVIE, movie.id)
         markWatched(key)
-        push(Screen.Player(listOf(PlayItem(key, movie.name, image = movie.poster, url = client.movieUrl(p, movie))), 0, live = false))
+        val info = movieDetail?.takeIf { it.movie.id == movie.id }?.info
+        val query = com.example.player.data.SubtitleQuery(
+            title = movie.name,
+            year = info?.releaseDate?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) },
+            tmdbId = info?.tmdbId,
+        )
+        push(Screen.Player(listOf(PlayItem(key, movie.name, image = movie.poster, url = client.movieUrl(p, movie), subtitleQuery = query)), 0, live = false))
     }
 
     fun playEpisodes(episodes: List<Episode>, index: Int, series: Series) {
@@ -431,6 +477,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 subtitle = series.name,
                 image = e.image ?: series.cover,
                 url = client.episodeUrl(p, e),
+                subtitleQuery = com.example.player.data.SubtitleQuery(
+                    title = series.name,
+                    tmdbId = seriesDetail?.takeIf { it.series.id == series.id }?.info?.tmdbId,
+                    season = e.season,
+                    episode = e.number,
+                ),
             )
         }
         push(Screen.Player(items, index, live = false))

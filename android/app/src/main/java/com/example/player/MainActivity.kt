@@ -145,7 +145,14 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             onPlay = { vm.playMovie(s.movie) },
             onToggleFavourite = { vm.toggleFavourite(Tile.keyOf(Kind.MOVIE, s.movie.id)) },
         )
-        Screen.Settings -> SettingsScreen(tmdbKey = vm.tmdbKey, onSave = vm::saveTmdbKey)
+        Screen.Settings -> SettingsScreen(
+            tmdbKey = vm.tmdbKey,
+            onSave = vm::saveTmdbKey,
+            subtitleKey = vm.subtitleKey,
+            subtitleUser = vm.subtitleUser,
+            subtitlePasswordSaved = vm.subtitlePasswordSaved,
+            onSaveSubtitles = vm::saveSubtitleAccount,
+        )
         Screen.Search -> {
             if (content != null) {
                 SearchScreen(
@@ -175,6 +182,14 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             live = s.live,
             onItemShown = { if (s.live) vm.onLivePlayed(it.key) },
             loadEpg = { item -> if (item.key.startsWith("live:")) vm.loadEpg(item.key.removePrefix("live:")) else emptyList() },
+            subtitles = remember(vm) {
+                com.example.player.ui.screens.SubtitleActions(
+                    search = vm::searchSubtitles,
+                    download = vm::downloadSubtitle,
+                    saved = vm::savedSubtitle,
+                    forget = vm::forgetSubtitle,
+                )
+            },
         )
     }
 }

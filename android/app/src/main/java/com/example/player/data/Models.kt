@@ -159,6 +159,17 @@ data class PlayItem(
     val number: Int? = null,
     /** Second url to try when the first keeps failing (live: .m3u8 instead of .ts). */
     val fallbackUrl: String? = null,
+    /** What to look for when searching subtitles online (movies and episodes only). */
+    val subtitleQuery: SubtitleQuery? = null,
+)
+
+/** A movie, or an episode of [title] when [season] and [episode] are set. */
+data class SubtitleQuery(
+    val title: String,
+    val year: String? = null,
+    val tmdbId: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 /** A tile in a grid or search result: a channel, a movie or a series. */

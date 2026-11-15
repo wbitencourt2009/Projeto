@@ -27,9 +27,20 @@ import com.example.player.ui.theme.PillButton
 
 /** Settings: the optional TMDB key used to fill missing synopsis, trailer and cast. */
 @Composable
-fun SettingsScreen(tmdbKey: String, onSave: (String) -> Unit) {
+fun SettingsScreen(
+    tmdbKey: String,
+    onSave: (String) -> Unit,
+    subtitleKey: String = "",
+    subtitleUser: String = "",
+    subtitlePasswordSaved: Boolean = false,
+    onSaveSubtitles: (key: String, user: String, password: String?) -> Unit = { _, _, _ -> },
+) {
     var key by remember { mutableStateOf(tmdbKey) }
     var saved by remember { mutableStateOf(false) }
+    var osKey by remember { mutableStateOf(subtitleKey) }
+    var osUser by remember { mutableStateOf(subtitleUser) }
+    var osPassword by remember { mutableStateOf("") }
+    var osSaved by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(AppColors.bg), contentAlignment = Alignment.Center) {
         Column(
             Modifier
@@ -58,6 +69,41 @@ fun SettingsScreen(tmdbKey: String, onSave: (String) -> Unit) {
             }
             Text(
                 "Sem chave, o botão Trailer abre a busca do YouTube pelo nome do filme.",
+                style = AppType.caption,
+                color = AppColors.textFaint,
+            )
+
+            Text("Legendas da internet", style = AppType.title, color = AppColors.text)
+            Text(
+                "Quando o filme ou episódio não tem legenda, o app busca legendas em português no OpenSubtitles. " +
+                    "Crie uma conta grátis em opensubtitles.com, abra o seu perfil → API consumers, crie um \"consumer\" " +
+                    "e copie a \"API key\". Usuário e senha são opcionais e aumentam o limite diário de downloads.",
+                style = AppType.body,
+                color = AppColors.textMuted,
+            )
+            Field(label = "Chave da API do OpenSubtitles", value = osKey, onChange = { osKey = it; osSaved = false })
+            Field(label = "Usuário do OpenSubtitles (opcional)", value = osUser, onChange = { osUser = it; osSaved = false })
+            Field(
+                label = if (subtitlePasswordSaved) "Senha (salva — digite para trocar)" else "Senha do OpenSubtitles (opcional)",
+                value = osPassword,
+                isPassword = true,
+                onChange = { osPassword = it; osSaved = false },
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                PillButton("Salvar legendas", primary = true, onClick = {
+                    onSaveSubtitles(osKey, osUser, osPassword.ifEmpty { null })
+                    osPassword = ""
+                    osSaved = true
+                })
+                if (subtitlePasswordSaved || osKey.isNotEmpty()) PillButton("Apagar dados", onClick = {
+                    osKey = ""; osUser = ""; osPassword = ""
+                    onSaveSubtitles("", "", "")
+                    osSaved = true
+                })
+                if (osSaved) Text("Salvo ✓", style = AppType.label, color = AppColors.accent)
+            }
+            Text(
+                "No filme: aperte ▼ (ou o botão CC) para ligar, desligar ou buscar legenda.",
                 style = AppType.caption,
                 color = AppColors.textFaint,
             )
