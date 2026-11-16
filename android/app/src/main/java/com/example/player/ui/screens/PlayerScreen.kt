@@ -318,6 +318,15 @@ fun PlayerScreen(
             .build()
     }
 
+    fun selectTextTrack(group: Tracks.Group, track: Int) {
+        subsOn = true
+        subPrefs.edit().putBoolean("subs_on", true).apply()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track))
+            .build()
+    }
+
     /** Turning back on: Portuguese first, then the downloaded one, then the first the video has. */
     fun turnSubtitlesOn() {
         val all = textGroups.flatMap { g -> (0 until g.length).map { g to it } }
@@ -331,15 +340,6 @@ fun PlayerScreen(
             pickWhenListed[0] = true
             setSubtitlesOn(true)
         }
-    }
-
-    fun selectTextTrack(group: Tracks.Group, track: Int) {
-        subsOn = true
-        subPrefs.edit().putBoolean("subs_on", true).apply()
-        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track))
-            .build()
     }
 
     /** Reloads the current video with (or without) the downloaded subtitle, at the same position. */
