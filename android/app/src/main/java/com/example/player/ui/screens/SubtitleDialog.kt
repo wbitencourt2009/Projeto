@@ -51,6 +51,7 @@ fun SubtitleDialog(
     hasDownloaded: Boolean,
     canSearch: Boolean,
     onOff: () -> Unit,
+    onOn: () -> Unit,
     onCycleSize: () -> Unit,
     onRemoveDownloaded: () -> Unit,
     search: suspend () -> List<SubtitleResult>,
@@ -103,19 +104,24 @@ fun SubtitleDialog(
             ) {
                 val list = results
                 if (list == null) {
-                    PillButton(
-                        (if (!enabled) "✓  " else "") + "Desligada",
-                        primary = !enabled,
-                        modifier = Modifier.focusRequester(first),
-                        onClick = { onOff(); onDismiss() },
-                    )
+                    if (enabled) {
+                        PillButton("Desligar legenda", modifier = Modifier.focusRequester(first), onClick = { onOff(); onDismiss() })
+                    } else {
+                        Text("Legenda desligada", style = AppType.label, color = AppColors.textMuted)
+                        PillButton("✓  Ligar legenda", primary = true, modifier = Modifier.focusRequester(first), onClick = { onOn(); onDismiss() })
+                    }
                     tracks.forEach { t ->
                         PillButton((if (enabled && t.selected) "✓  " else "") + t.label, primary = enabled && t.selected, onClick = { t.select(); onDismiss() })
                     }
                     if (tracks.isEmpty()) {
                         Text("Este vídeo não tem legenda própria.", style = AppType.caption, color = AppColors.textMuted)
                     }
-                    if (canSearch) PillButton("🔎  Buscar legenda em português na internet", onClick = { if (busy == null) runSearch() })
+                    if (canSearch) {
+                        PillButton(
+                            "🔎  Buscar legenda em português na internet",
+                            onClick = { if (busy == null) runSearch() },
+                        )
+                    }
                     if (hasDownloaded) PillButton("🗑  Apagar legenda baixada", onClick = { onRemoveDownloaded(); onDismiss() })
                     PillButton("Tamanho do texto: $sizeName", onClick = onCycleSize)
                 } else {

@@ -13,8 +13,11 @@ android {
         applicationId = "com.example.player"
         minSdk = 23
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.5.0"
+        versionCode = 12
+        versionName = "0.5.1"
+        // OpenSubtitles key from the CI secret OPENSUBTITLES_API_KEY (never committed); empty if unset.
+        val osKey = (System.getenv("OPENSUBTITLES_API_KEY") ?: "").replace("\"", "")
+        buildConfigField("String", "OPENSUBTITLES_KEY", "\"$osKey\"")
     }
 
     signingConfigs {
@@ -47,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

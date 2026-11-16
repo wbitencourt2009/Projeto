@@ -110,6 +110,7 @@ fun PlayerScreen(
     var textGroups by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var showSubs by remember { mutableStateOf(false) }
     val preparedIndex = remember { intArrayOf(-1) }
+    val pickWhenListed = remember { booleanArrayOf(false) }
     var downloadedSub by remember(index) {
         mutableStateOf(if (live) null else items.getOrNull(index)?.let { subtitles?.saved?.invoke(it) })
     }
@@ -151,6 +152,16 @@ fun PlayerScreen(
 
             override fun onTracksChanged(tracks: Tracks) {
                 textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                if (pickWhenListed[0] && textGroups.isNotEmpty()) {
+                    pickWhenListed[0] = false
+                    if (textGroups.none { it.isSelected }) {
+                        val g = textGroups.firstOrNull { g -> (0 until g.length).any { g.getTrackFormat(it).language?.startsWith("pt", true) == true } } ?: textGroups.first()
+                        val i = (0 until g.length).firstOrNull { g.getTrackFormat(it).language?.startsWith("pt", true) == true } ?: 0
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
+                            .build()
+                    }
+                }
             }
 
             override fun onPlayerError(e: PlaybackException) {
@@ -307,6 +318,21 @@ fun PlayerScreen(
             .build()
     }
 
+    /** Turning back on: Portuguese first, then the downloaded one, then the first the video has. */
+    fun turnSubtitlesOn() {
+        val all = textGroups.flatMap { g -> (0 until g.length).map { g to it } }
+        val best = all.firstOrNull { (g, i) -> g.getTrackFormat(i).language?.startsWith("pt", ignoreCase = true) == true }
+            ?: all.firstOrNull { (g, i) -> g.getTrackFormat(i).label == DOWNLOADED_LABEL }
+            ?: all.firstOrNull()
+        if (best != null) {
+            selectTextTrack(best.first, best.second)
+        } else {
+            // The tracks are listed again once the text renderer is back on: choose then.
+            pickWhenListed[0] = true
+            setSubtitlesOn(true)
+        }
+    }
+
     fun selectTextTrack(group: Tracks.Group, track: Int) {
         subsOn = true
         subPrefs.edit().putBoolean("subs_on", true).apply()
@@ -369,7 +395,7 @@ fun PlayerScreen(
                     Key.DirectionLeft, Key.MediaRewind -> { seekBy(if (held) -30_000L else -10_000L); true }
                     Key.DirectionRight, Key.MediaFastForward -> { seekBy(if (held) 30_000L else 10_000L); true }
                     Key.DirectionUp, Key.Menu -> { cycleAspect(); showControls(); true }
-                    Key.DirectionDown -> { if (overlay) showSubs = true else showControls(); true }
+                    Key.DirectionDown -> { showControls(); showSubs = true; true }
                     else -> false
                 }
             }
@@ -503,7 +529,7 @@ fun PlayerScreen(
         if (showSubs && !live) {
             val current = items.getOrNull(index)
             val options = textGroups.flatMap { g ->
-                (0 until g.length).filter { g.isTrackSupported(it) }.map { i ->
+                (0 until g.length).map { i ->
                     TextTrackOption(trackName(g.getTrackFormat(i)), g.isTrackSelected(i)) { selectTextTrack(g, i) }
                 }
             }
@@ -514,6 +540,7 @@ fun PlayerScreen(
                 hasDownloaded = downloadedSub != null,
                 canSearch = subtitles != null && current?.subtitleQuery != null,
                 onOff = { setSubtitlesOn(false) },
+                onOn = { turnSubtitlesOn() },
                 onCycleSize = {
                     subSize = (subSize + 1) % SUB_SIZES.size
                     subPrefs.edit().putInt("sub_size", subSize).apply()

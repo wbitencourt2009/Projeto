@@ -90,11 +90,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun searchSubtitles(query: com.example.player.data.SubtitleQuery) = subtitles.search(query, subtitleKey)
+    /** The key typed in Ajustes, or the one built into the app. */
+    private val effectiveSubtitleKey get() = subtitleKey.ifBlank { BuildConfig.OPENSUBTITLES_KEY }
+    val hasBuiltInSubtitleKey = BuildConfig.OPENSUBTITLES_KEY.isNotBlank()
+
+    suspend fun searchSubtitles(query: com.example.player.data.SubtitleQuery) = subtitles.search(query, effectiveSubtitleKey)
 
     suspend fun downloadSubtitle(result: com.example.player.data.SubtitleResult, item: PlayItem): java.io.File {
         val password = withContext(Dispatchers.IO) { store.loadSecret("os_password") }
-        return subtitles.download(result.fileId, subtitleKey, subtitleUser, password, subtitleDir, subtitleFileName(item))
+        return subtitles.download(result.fileId, effectiveSubtitleKey, subtitleUser, password, subtitleDir, subtitleFileName(item))
     }
 
     /** A subtitle downloaded earlier for this movie or episode, loaded again automatically. */

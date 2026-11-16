@@ -33,6 +33,7 @@ fun SettingsScreen(
     subtitleKey: String = "",
     subtitleUser: String = "",
     subtitlePasswordSaved: Boolean = false,
+    hasBuiltInSubtitleKey: Boolean = false,
     onSaveSubtitles: (key: String, user: String, password: String?) -> Unit = { _, _, _ -> },
 ) {
     var key by remember { mutableStateOf(tmdbKey) }
@@ -81,7 +82,10 @@ fun SettingsScreen(
                 style = AppType.body,
                 color = AppColors.textMuted,
             )
-            Field(label = "Chave da API do OpenSubtitles", value = osKey, onChange = { osKey = it; osSaved = false })
+            if (hasBuiltInSubtitleKey) {
+                Text("✓ O app já vem com a chave da API. Só preencha usuário e senha (opcional).", style = AppType.label, color = AppColors.accent)
+            }
+            Field(label = if (hasBuiltInSubtitleKey) "Outra chave da API (opcional)" else "Chave da API do OpenSubtitles", value = osKey, onChange = { osKey = it; osSaved = false })
             Field(label = "Usuário do OpenSubtitles (opcional)", value = osUser, onChange = { osUser = it; osSaved = false })
             Field(
                 label = if (subtitlePasswordSaved) "Senha (salva — digite para trocar)" else "Senha do OpenSubtitles (opcional)",

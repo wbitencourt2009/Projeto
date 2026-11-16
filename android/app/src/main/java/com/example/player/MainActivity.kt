@@ -151,6 +151,7 @@ private fun App(vm: AppViewModel, onExit: () -> Unit) {
             subtitleKey = vm.subtitleKey,
             subtitleUser = vm.subtitleUser,
             subtitlePasswordSaved = vm.subtitlePasswordSaved,
+            hasBuiltInSubtitleKey = vm.hasBuiltInSubtitleKey,
             onSaveSubtitles = vm::saveSubtitleAccount,
         )
         Screen.Search -> {

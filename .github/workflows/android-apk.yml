@@ -27,6 +27,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
+        env:
+          OPENSUBTITLES_API_KEY: ${{ secrets.OPENSUBTITLES_API_KEY }}
         run: |
           set -o pipefail
           chmod +x gradlew
