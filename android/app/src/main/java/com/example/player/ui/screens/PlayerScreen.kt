@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -110,6 +111,11 @@ fun PlayerScreen(
     var textGroups by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var showSubs by remember { mutableStateOf(false) }
     val preparedIndex = remember { intArrayOf(-1) }
+    // "Próximo episódio" card near the end of an episode.
+    var remainingMs by remember { mutableLongStateOf(Long.MAX_VALUE) }
+    var nextCancelledFor by remember { mutableIntStateOf(-1) }
+    var episodeEnded by remember(index) { mutableStateOf(false) }
+    var nextCountdown by remember { mutableIntStateOf(NEXT_COUNTDOWN_S) }
     val pickWhenListed = remember { booleanArrayOf(false) }
     var downloadedSub by remember(index) {
         mutableStateOf(if (live) null else items.getOrNull(index)?.let { subtitles?.saved?.invoke(it) })
@@ -147,7 +153,17 @@ fun PlayerScreen(
                     retries = 0
                     retryPending = false
                 }
-                if (state == Player.STATE_ENDED && !live && index < items.size - 1) index++
+                if (state == Player.STATE_ENDED && !live && index < items.size - 1) {
+                    // Card cancelled: wait for the viewer on the card; otherwise go on.
+                    if (nextCancelledFor == index) {
+                        nextCancelledFor = -1
+                        episodeEnded = true
+                    } else {
+                        retries = 0
+                        retryPending = false
+                        index++
+                    }
+                }
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -355,6 +371,44 @@ fun PlayerScreen(
         player.playWhenReady = true
     }
 
+    val nextItem = if (!live) items.getOrNull(index + 1) else null
+    val showNextCard = nextItem != null && error == null && !showSubs &&
+        (episodeEnded || (nextCancelledFor != index && remainingMs in 1..NEXT_CARD_MS))
+
+    fun playNext() {
+        if (index >= items.size - 1) return
+        retries = 0
+        retryPending = false
+        remainingMs = Long.MAX_VALUE
+        index++
+    }
+
+    fun cancelNext() {
+        nextCancelledFor = index
+        episodeEnded = false
+    }
+
+    // Time left in the episode, checked even while the controls are hidden.
+    LaunchedEffect(index, live) {
+        remainingMs = Long.MAX_VALUE
+        while (!live && index < items.size - 1) {
+            val d = player.duration
+            remainingMs = if (d > 0) (d - player.currentPosition).coerceAtLeast(0) else Long.MAX_VALUE
+            delay(1_000)
+        }
+    }
+
+    // Countdown on the card; pausing stops it.
+    LaunchedEffect(showNextCard, index) {
+        nextCountdown = NEXT_COUNTDOWN_S
+        if (!showNextCard) return@LaunchedEffect
+        while (nextCountdown > 0) {
+            delay(1_000)
+            if (player.playWhenReady || episodeEnded) nextCountdown--
+        }
+        playNext()
+    }
+
     fun zap(delta: Int) {
         if (items.isEmpty()) return
         retries = 0
@@ -377,6 +431,16 @@ fun PlayerScreen(
                 retries = 0
                 attempt++
                 return@onKeyEvent true
+            }
+            if (!live && e.key == Key.MediaNext) {
+                playNext()
+                return@onKeyEvent true
+            }
+            if (showNextCard) {
+                when {
+                    ok -> { playNext(); return@onKeyEvent true }
+                    e.key == Key.Back || e.key == Key.Escape -> { cancelNext(); return@onKeyEvent true }
+                }
             }
             if (live) {
                 when (e.key) {
@@ -522,7 +586,24 @@ fun PlayerScreen(
                     onForward = { seekBy(10_000L) },
                     subtitlesLabel = if (!subsOn) "Desligada" else currentSubtitleName(textGroups) ?: "Ligada",
                     onSubtitles = { showSubs = true },
+                    onNext = if (nextItem != null) ({ playNext() }) else null,
                 )
+            }
+            AnimatedVisibility(
+                visible = showNextCard,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 40.dp, bottom = if (overlay) 190.dp else 40.dp),
+            ) {
+                if (nextItem != null) {
+                    NextEpisodeCard(
+                        next = nextItem,
+                        countdown = nextCountdown,
+                        ended = episodeEnded,
+                        onPlay = { playNext() },
+                        onCancel = { cancelNext() },
+                    )
+                }
             }
         }
 
@@ -593,6 +674,7 @@ private fun VodControls(
     onForward: () -> Unit,
     subtitlesLabel: String,
     onSubtitles: () -> Unit,
+    onNext: (() -> Unit)? = null,
 ) {
     Column(
         Modifier
@@ -622,6 +704,7 @@ private fun VodControls(
             PillButton(if (paused) "▶  Continuar" else "❚❚  Pausar", primary = true, onClick = onPlayPause)
             PillButton("10s ⏩", onClick = onForward)
             PillButton("CC  Legenda: $subtitlesLabel", onClick = onSubtitles)
+            if (onNext != null) PillButton("Próximo ⏭", onClick = onNext)
             Spacer(Modifier.weight(1f))
             Text(
                 "OK pausar · ◀ ▶ 10 s (segure p/ 30 s) · ▼ legendas · ▲ tela: $aspectName",
@@ -638,6 +721,47 @@ private fun clockOf(ms: Long): String {
     val m = (total % 3600) / 60
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+@Composable
+private fun NextEpisodeCard(next: PlayItem, countdown: Int, ended: Boolean, onPlay: () -> Unit, onCancel: () -> Unit) {
+    Row(
+        Modifier
+            .width(560.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(AppColors.glass.copy(alpha = 0.95f))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(180.dp)
+                .height(101.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(AppColors.surfaceRaised),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (next.image != null) {
+                AsyncImage(model = next.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            }
+            Text("▶", style = AppType.headline, color = AppColors.text)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Próximo episódio", style = AppType.caption, color = AppColors.accent)
+            Text(next.title, style = AppType.label, color = AppColors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                if (ended) "Começa em $countdown s" else "Começa em $countdown s  ·  OK assistir agora  ·  Voltar cancela",
+                style = AppType.caption,
+                color = AppColors.textMuted,
+                maxLines = 2,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PillButton("▶  Assistir agora", primary = true, onClick = onPlay)
+                PillButton("Cancelar", onClick = onCancel)
+            }
+        }
+    }
 }
 
 /** Callbacks the player uses to find and keep subtitles (see AppViewModel). */
@@ -770,4 +894,7 @@ private fun LiveInfoBar(
 }
 
 private const val MAX_RETRIES = 5
+/** The card shows in the last 40 s of an episode (credits) and starts the next one after 10 s. */
+private const val NEXT_CARD_MS = 40_000L
+private const val NEXT_COUNTDOWN_S = 10
 private const val STALL_TIMEOUT_MS = 20_000L
