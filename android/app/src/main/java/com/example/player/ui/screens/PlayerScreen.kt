@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -308,6 +309,10 @@ fun PlayerScreen(
             overlay = false
         }
     }
+    // ▼ moves into the button row; ◀ ▶ pick a button, OK presses it, ▲ leaves.
+    var buttonMode by remember { mutableStateOf(false) }
+    var selectedButton by remember { mutableIntStateOf(1) }
+    LaunchedEffect(overlay) { if (!overlay) buttonMode = false }
     fun showControls() {
         overlay = true
         lastInteraction = System.nanoTime()
@@ -436,7 +441,7 @@ fun PlayerScreen(
                 playNext()
                 return@onKeyEvent true
             }
-            if (showNextCard) {
+            if (showNextCard && !buttonMode) {
                 when {
                     ok -> { playNext(); return@onKeyEvent true }
                     e.key == Key.Back || e.key == Key.Escape -> { cancelNext(); return@onKeyEvent true }
@@ -450,6 +455,28 @@ fun PlayerScreen(
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { overlay = !overlay; true }
                     else -> false
                 }
+            } else if (buttonMode && overlay) {
+                val buttons = vodButtons(paused, "", hasNext = nextItem != null)
+                selectedButton = selectedButton.coerceIn(0, buttons.size - 1)
+                showControls()
+                when (e.key) {
+                    Key.DirectionLeft -> { selectedButton = (selectedButton - 1).coerceAtLeast(0); true }
+                    Key.DirectionRight -> { selectedButton = (selectedButton + 1).coerceAtMost(buttons.size - 1); true }
+                    Key.DirectionUp -> { buttonMode = false; true }
+                    Key.DirectionDown -> true
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        when (buttons[selectedButton].id) {
+                            VodButton.BACK -> seekBy(-10_000L)
+                            VodButton.PLAY -> togglePause()
+                            VodButton.FORWARD -> seekBy(10_000L)
+                            VodButton.SUBTITLES -> { buttonMode = false; showSubs = true }
+                            VodButton.NEXT -> { buttonMode = false; playNext() }
+                        }
+                        true
+                    }
+                    Key.Back, Key.Escape -> { buttonMode = false; true }
+                    else -> false
+                }
             } else {
                 when (e.key) {
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.MediaPlayPause, Key.Spacebar -> { togglePause(); true }
@@ -459,7 +486,7 @@ fun PlayerScreen(
                     Key.DirectionLeft, Key.MediaRewind -> { seekBy(if (held) -30_000L else -10_000L); true }
                     Key.DirectionRight, Key.MediaFastForward -> { seekBy(if (held) 30_000L else 10_000L); true }
                     Key.DirectionUp, Key.Menu -> { cycleAspect(); showControls(); true }
-                    Key.DirectionDown -> { showControls(); showSubs = true; true }
+                    Key.DirectionDown -> { showControls(); buttonMode = true; selectedButton = 1; true }
                     else -> false
                 }
             }
@@ -587,6 +614,7 @@ fun PlayerScreen(
                     subtitlesLabel = if (!subsOn) "Desligada" else currentSubtitleName(textGroups) ?: "Ligada",
                     onSubtitles = { showSubs = true },
                     onNext = if (nextItem != null) ({ playNext() }) else null,
+                    selected = if (buttonMode) selectedButton else -1,
                 )
             }
             AnimatedVisibility(
@@ -675,6 +703,7 @@ private fun VodControls(
     subtitlesLabel: String,
     onSubtitles: () -> Unit,
     onNext: (() -> Unit)? = null,
+    selected: Int = -1,
 ) {
     Column(
         Modifier
@@ -700,14 +729,27 @@ private fun VodControls(
             Text(if (duration > 0) clockOf(duration) else "--:--", style = AppType.label, color = AppColors.textMuted)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PillButton("⏪ 10s", onClick = onBack)
-            PillButton(if (paused) "▶  Continuar" else "❚❚  Pausar", primary = true, onClick = onPlayPause)
-            PillButton("10s ⏩", onClick = onForward)
-            PillButton("CC  Legenda: $subtitlesLabel", onClick = onSubtitles)
-            if (onNext != null) PillButton("Próximo ⏭", onClick = onNext)
+            val buttons = vodButtons(paused, subtitlesLabel, hasNext = onNext != null)
+            buttons.forEachIndexed { i, b ->
+                val action = when (b.id) {
+                    VodButton.BACK -> onBack
+                    VodButton.PLAY -> onPlayPause
+                    VodButton.FORWARD -> onForward
+                    VodButton.SUBTITLES -> onSubtitles
+                    VodButton.NEXT -> onNext ?: {}
+                }
+                val isSelected = i == selected
+                PillButton(
+                    b.label,
+                    primary = isSelected,
+                    modifier = if (isSelected) Modifier.border(3.dp, AppColors.text, RoundedCornerShape(50)) else Modifier,
+                    onClick = action,
+                )
+            }
             Spacer(Modifier.weight(1f))
             Text(
-                "OK pausar · ◀ ▶ 10 s (segure p/ 30 s) · ▼ legendas · ▲ tela: $aspectName",
+                if (selected >= 0) "◀ ▶ escolher · OK confirmar · ▲ voltar"
+                else "OK pausar · ◀ ▶ 10 s · ▼ botões (legenda, próximo) · ▲ tela: $aspectName",
                 style = AppType.caption,
                 color = AppColors.textMuted,
             )
@@ -721,6 +763,18 @@ private fun clockOf(ms: Long): String {
     val m = (total % 3600) / 60
     val s = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
+}
+
+private enum class VodButton { BACK, PLAY, FORWARD, SUBTITLES, NEXT }
+
+private class VodButtonSpec(val id: VodButton, val label: String)
+
+private fun vodButtons(paused: Boolean, subtitlesLabel: String, hasNext: Boolean) = buildList {
+    add(VodButtonSpec(VodButton.BACK, "⏪ 10s"))
+    add(VodButtonSpec(VodButton.PLAY, if (paused) "▶  Continuar" else "❚❚  Pausar"))
+    add(VodButtonSpec(VodButton.FORWARD, "10s ⏩"))
+    add(VodButtonSpec(VodButton.SUBTITLES, "CC  Legenda: $subtitlesLabel"))
+    if (hasNext) add(VodButtonSpec(VodButton.NEXT, "Próximo ⏭"))
 }
 
 @Composable
