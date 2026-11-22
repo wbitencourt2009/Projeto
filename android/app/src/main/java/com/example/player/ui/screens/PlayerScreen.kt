@@ -275,11 +275,11 @@ fun PlayerScreen(
 
     // Screen format (fit / stretch / zoom), remembered between videos.
     val prefs = remember { context.getSharedPreferences("player", android.content.Context.MODE_PRIVATE) }
-    var aspect by remember { mutableIntStateOf(prefs.getInt("aspect", 0).coerceIn(0, ASPECT_MODES.size - 1)) }
+    var aspect by remember { mutableIntStateOf(prefs.getInt("aspect_v2", 0).coerceIn(0, ASPECT_MODES.size - 1)) }
     var aspectLabelVisible by remember { mutableStateOf(false) }
     fun cycleAspect() {
         aspect = (aspect + 1) % ASPECT_MODES.size
-        prefs.edit().putInt("aspect", aspect).apply()
+        prefs.edit().putInt("aspect_v2", aspect).apply()
         aspectLabelVisible = true
     }
     LaunchedEffect(aspect, aspectLabelVisible) {
@@ -471,6 +471,7 @@ fun PlayerScreen(
                             VodButton.FORWARD -> seekBy(10_000L)
                             VodButton.SUBTITLES -> { buttonMode = false; showSubs = true }
                             VodButton.NEXT -> { buttonMode = false; playNext() }
+                            VodButton.SCREEN -> cycleAspect()
                         }
                         true
                     }
@@ -485,7 +486,9 @@ fun PlayerScreen(
                     // Hold the key to jump faster.
                     Key.DirectionLeft, Key.MediaRewind -> { seekBy(if (held) -30_000L else -10_000L); true }
                     Key.DirectionRight, Key.MediaFastForward -> { seekBy(if (held) 30_000L else 10_000L); true }
-                    Key.DirectionUp, Key.Menu -> { cycleAspect(); showControls(); true }
+                    // ▲ only shows the controls: it used to change the screen format by accident.
+                    Key.DirectionUp -> { showControls(); true }
+                    Key.Menu -> { cycleAspect(); showControls(); true }
                     Key.DirectionDown -> { showControls(); buttonMode = true; selectedButton = 1; true }
                     else -> false
                 }
@@ -615,6 +618,7 @@ fun PlayerScreen(
                     onSubtitles = { showSubs = true },
                     onNext = if (nextItem != null) ({ playNext() }) else null,
                     selected = if (buttonMode) selectedButton else -1,
+                    onAspect = { cycleAspect() },
                 )
             }
             AnimatedVisibility(
@@ -704,6 +708,7 @@ private fun VodControls(
     onSubtitles: () -> Unit,
     onNext: (() -> Unit)? = null,
     selected: Int = -1,
+    onAspect: () -> Unit = {},
 ) {
     Column(
         Modifier
@@ -729,7 +734,7 @@ private fun VodControls(
             Text(if (duration > 0) clockOf(duration) else "--:--", style = AppType.label, color = AppColors.textMuted)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val buttons = vodButtons(paused, subtitlesLabel, hasNext = onNext != null)
+            val buttons = vodButtons(paused, subtitlesLabel, hasNext = onNext != null, aspectName = aspectName)
             buttons.forEachIndexed { i, b ->
                 val action = when (b.id) {
                     VodButton.BACK -> onBack
@@ -737,6 +742,7 @@ private fun VodControls(
                     VodButton.FORWARD -> onForward
                     VodButton.SUBTITLES -> onSubtitles
                     VodButton.NEXT -> onNext ?: {}
+                    VodButton.SCREEN -> onAspect
                 }
                 val isSelected = i == selected
                 PillButton(
@@ -749,7 +755,7 @@ private fun VodControls(
             Spacer(Modifier.weight(1f))
             Text(
                 if (selected >= 0) "◀ ▶ escolher · OK confirmar · ▲ voltar"
-                else "OK pausar · ◀ ▶ 10 s · ▼ botões (legenda, próximo) · ▲ tela: $aspectName",
+                else "OK pausar · ◀ ▶ 10 s · ▼ botões (legenda, tela, próximo)",
                 style = AppType.caption,
                 color = AppColors.textMuted,
             )
@@ -765,15 +771,16 @@ private fun clockOf(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 }
 
-private enum class VodButton { BACK, PLAY, FORWARD, SUBTITLES, NEXT }
+private enum class VodButton { BACK, PLAY, FORWARD, SUBTITLES, SCREEN, NEXT }
 
 private class VodButtonSpec(val id: VodButton, val label: String)
 
-private fun vodButtons(paused: Boolean, subtitlesLabel: String, hasNext: Boolean) = buildList {
+private fun vodButtons(paused: Boolean, subtitlesLabel: String, hasNext: Boolean, aspectName: String = "") = buildList {
     add(VodButtonSpec(VodButton.BACK, "⏪ 10s"))
     add(VodButtonSpec(VodButton.PLAY, if (paused) "▶  Continuar" else "❚❚  Pausar"))
     add(VodButtonSpec(VodButton.FORWARD, "10s ⏩"))
     add(VodButtonSpec(VodButton.SUBTITLES, "CC  Legenda: $subtitlesLabel"))
+    add(VodButtonSpec(VodButton.SCREEN, "▭  Tela: $aspectName"))
     if (hasNext) add(VodButtonSpec(VodButton.NEXT, "Próximo ⏭"))
 }
 
